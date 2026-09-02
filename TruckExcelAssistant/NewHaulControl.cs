@@ -26,6 +26,10 @@ public sealed class NewHaulControl : UserControl
     private readonly Panel _bonSanguField = new();
     private readonly Panel _rejectionCostField = new();
     private readonly Panel _claimField = new();
+    private readonly Panel _driverRoadMoneyField = new();
+    private readonly Panel _otherExpenseField = new();
+    private readonly Panel _notesField = new();
+    private readonly TableLayoutPanel _adjustmentGrid = new();
     private readonly Label _differenceValue = new();
     private readonly Label _grossValue = new();
     private readonly Label _adjustmentLabel = new();
@@ -102,7 +106,7 @@ public sealed class NewHaulControl : UserControl
             Margin = Padding.Empty,
             Padding = Padding.Empty
         };
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 74F));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 78F));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 174F));
         Controls.Add(root);
@@ -152,9 +156,9 @@ public sealed class NewHaulControl : UserControl
             Margin = new Padding(0, 2, 0, 0),
             Padding = Padding.Empty
         };
-        AddLayoutButton(layouts, OutputLayout.TruckLedger, "Pembukuan", 94);
-        AddLayoutButton(layouts, OutputLayout.CompactInvoice, "Invoice ringkas", 112);
-        AddLayoutButton(layouts, OutputLayout.CompleteInvoice, "Invoice lengkap", 118);
+        AddLayoutButton(layouts, OutputLayout.TruckLedger, "Pembukuan", 118);
+        AddLayoutButton(layouts, OutputLayout.CompactInvoice, "Invoice ringkas", 138);
+        AddLayoutButton(layouts, OutputLayout.CompleteInvoice, "Invoice lengkap", 142);
 
         heading.Controls.Add(titles, 0, 0);
         heading.Controls.Add(layouts, 1, 0);
@@ -250,25 +254,22 @@ public sealed class NewHaulControl : UserControl
 
     private Control BuildAdjustmentsSection()
     {
-        var fields = CreateFieldGrid(2);
+        ConfigureFieldGrid(_adjustmentGrid, 2);
 
         ConfigureFieldContainer(_bonSanguField);
         _bonSanguField.Controls.Add(CreateField("Bon sangu", _bonSangu));
-        fields.Controls.Add(_bonSanguField, 0, 0);
 
         ConfigureFieldContainer(_rejectionCostField);
         _rejectionCostField.Controls.Add(CreateField("Biaya tolakan / uang makan", _rejectionCost));
-        fields.Controls.Add(_rejectionCostField, 1, 0);
-
-        AddField(fields, 2, 0, "Uang jalan sopir", _driverRoadMoney);
-        AddField(fields, 3, 0, "Biaya lainnya", _otherExpense);
 
         ConfigureFieldContainer(_claimField);
         _claimField.Controls.Add(CreateField("Nilai klaim", _claimAmount));
-        fields.Controls.Add(_claimField, 0, 1);
 
-        AddField(fields, 1, 1, "Keterangan", _notes, 3);
-        return CreateSection("Biaya dan penyesuaian", fields);
+        PrepareDynamicField(_driverRoadMoneyField, "Uang jalan sopir", _driverRoadMoney);
+        PrepareDynamicField(_otherExpenseField, "Biaya lainnya", _otherExpense);
+        PrepareDynamicField(_notesField, "Keterangan", _notes);
+
+        return CreateSection("Biaya dan penyesuaian", _adjustmentGrid);
     }
 
     private Control BuildSummary()
@@ -437,10 +438,7 @@ public sealed class NewHaulControl : UserControl
             pair.Value.FlatAppearance.BorderColor = selected ? AppTheme.Accent : AppTheme.InputBorder;
         }
 
-        _customerField.Visible = true;
-        _bonSanguField.Visible = layout == OutputLayout.CompactInvoice;
-        _rejectionCostField.Visible = layout == OutputLayout.CompleteInvoice;
-        _claimField.Visible = layout == OutputLayout.CompleteInvoice;
+        ArrangeAdjustmentFields(layout);
 
         _adjustmentLabel.Text = layout switch
         {
@@ -457,6 +455,34 @@ public sealed class NewHaulControl : UserControl
         };
 
         Recalculate();
+    }
+
+    private void ArrangeAdjustmentFields(OutputLayout layout)
+    {
+        _adjustmentGrid.SuspendLayout();
+        _adjustmentGrid.Controls.Clear();
+
+        switch (layout)
+        {
+            case OutputLayout.CompactInvoice:
+                AddExistingField(_adjustmentGrid, _bonSanguField, 0, 0, 2);
+                AddExistingField(_adjustmentGrid, _driverRoadMoneyField, 2, 0);
+                AddExistingField(_adjustmentGrid, _otherExpenseField, 3, 0);
+                break;
+            case OutputLayout.CompleteInvoice:
+                AddExistingField(_adjustmentGrid, _rejectionCostField, 0, 0);
+                AddExistingField(_adjustmentGrid, _claimField, 1, 0);
+                AddExistingField(_adjustmentGrid, _driverRoadMoneyField, 2, 0);
+                AddExistingField(_adjustmentGrid, _otherExpenseField, 3, 0);
+                break;
+            default:
+                AddExistingField(_adjustmentGrid, _driverRoadMoneyField, 0, 0, 2);
+                AddExistingField(_adjustmentGrid, _otherExpenseField, 2, 0, 2);
+                break;
+        }
+
+        AddExistingField(_adjustmentGrid, _notesField, 0, 1, 4);
+        _adjustmentGrid.ResumeLayout(true);
     }
 
     private void Recalculate()
@@ -642,15 +668,23 @@ public sealed class NewHaulControl : UserControl
 
     private static TableLayoutPanel CreateFieldGrid(int rows)
     {
-        var grid = new TableLayoutPanel
-        {
-            Dock = DockStyle.Top,
-            AutoSize = true,
-            ColumnCount = 4,
-            RowCount = rows,
-            Margin = Padding.Empty,
-            Padding = Padding.Empty
-        };
+        var grid = new TableLayoutPanel();
+        ConfigureFieldGrid(grid, rows);
+        return grid;
+    }
+
+    private static void ConfigureFieldGrid(TableLayoutPanel grid, int rows)
+    {
+        grid.SuspendLayout();
+        grid.Controls.Clear();
+        grid.ColumnStyles.Clear();
+        grid.RowStyles.Clear();
+        grid.Dock = DockStyle.Top;
+        grid.AutoSize = true;
+        grid.ColumnCount = 4;
+        grid.RowCount = rows;
+        grid.Margin = Padding.Empty;
+        grid.Padding = Padding.Empty;
         for (var index = 0; index < 4; index++)
         {
             grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25F));
@@ -659,7 +693,24 @@ public sealed class NewHaulControl : UserControl
         {
             grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 64F));
         }
-        return grid;
+        grid.ResumeLayout();
+    }
+
+    private static void PrepareDynamicField(Panel field, string label, Control input)
+    {
+        ConfigureFieldContainer(field);
+        field.Controls.Add(CreateField(label, input));
+    }
+
+    private static void AddExistingField(
+        TableLayoutPanel grid,
+        Control field,
+        int column,
+        int row,
+        int columnSpan = 1)
+    {
+        grid.Controls.Add(field, column, row);
+        grid.SetColumnSpan(field, columnSpan);
     }
 
     private static Control CreateSection(string title, Control content)
