@@ -656,7 +656,9 @@ public sealed class NewHaulControl : UserControl
         comboBox.DropDownStyle = ComboBoxStyle.DropDown;
         comboBox.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
         comboBox.AutoCompleteSource = AutoCompleteSource.ListItems;
-        comboBox.FlatStyle = FlatStyle.Standard;
+        comboBox.FlatStyle = FlatStyle.Flat;
+        comboBox.BackColor = AppTheme.Surface;
+        comboBox.ForeColor = AppTheme.TextPrimary;
         comboBox.IntegralHeight = false;
         comboBox.DropDownHeight = 180;
         comboBox.AccessibleDescription = placeholder;
@@ -665,7 +667,7 @@ public sealed class NewHaulControl : UserControl
     private static void ConfigureTextBox(TextBox textBox)
     {
         textBox.Dock = DockStyle.Fill;
-        textBox.BorderStyle = BorderStyle.FixedSingle;
+        textBox.BorderStyle = BorderStyle.None;
         textBox.BackColor = AppTheme.Surface;
         textBox.ForeColor = AppTheme.TextPrimary;
         textBox.Margin = Padding.Empty;
@@ -763,8 +765,30 @@ public sealed class NewHaulControl : UserControl
             Font = new Font("Segoe UI", 8.5F),
             TextAlign = ContentAlignment.MiddleLeft
         };
+
+        var inputBorder = new Panel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = AppTheme.InputBorder,
+            Padding = new Padding(1),
+            Margin = Padding.Empty
+        };
+        var inputSurface = new Panel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = input.BackColor,
+            Margin = Padding.Empty,
+            Padding = input switch
+            {
+                ComboBox => new Padding(4, 1, 1, 1),
+                DateTimePicker => new Padding(3, 1, 1, 1),
+                _ => new Padding(7, 5, 7, 3)
+            }
+        };
         input.Dock = DockStyle.Fill;
-        field.Controls.Add(input);
+        inputSurface.Controls.Add(input);
+        inputBorder.Controls.Add(inputSurface);
+        field.Controls.Add(inputBorder);
         field.Controls.Add(caption);
         return field;
     }

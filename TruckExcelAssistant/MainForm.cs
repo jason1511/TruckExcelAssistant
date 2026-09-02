@@ -46,20 +46,33 @@ public sealed class MainForm : Form
         {
             Dock = DockStyle.Fill,
             BackColor = AppTheme.Sidebar,
-            Padding = new Padding(12, 18, 12, 14),
+            Padding = new Padding(12, 14, 12, 14),
             Margin = Padding.Empty
         };
 
-        var brand = new Label
+        var brand = new Panel
         {
             Dock = DockStyle.Top,
-            Height = 70,
-            Text = "TRUCK EXCEL ASSISTANT\r\nPembukuan & invoice",
+            Height = 88,
+            BackColor = AppTheme.Sidebar,
+            Margin = Padding.Empty
+        };
+        brand.Controls.Add(new Label
+        {
+            AutoSize = true,
+            Text = "TRUCK EXCEL\r\nASSISTANT",
             ForeColor = Color.White,
             Font = new Font("Segoe UI", 10F, FontStyle.Bold),
-            TextAlign = ContentAlignment.MiddleLeft,
-            Padding = new Padding(8, 0, 0, 8)
-        };
+            Location = new Point(10, 5)
+        });
+        brand.Controls.Add(new Label
+        {
+            AutoSize = true,
+            Text = "Pembukuan & invoice",
+            ForeColor = Color.FromArgb(174, 202, 196),
+            Font = new Font("Segoe UI", 8F),
+            Location = new Point(10, 51)
+        });
         sidebar.Controls.Add(brand);
 
         var backupStatus = new Label
@@ -81,7 +94,7 @@ public sealed class MainForm : Form
             FlowDirection = FlowDirection.TopDown,
             WrapContents = false,
             AutoScroll = false,
-            Padding = new Padding(0, 8, 0, 0),
+            Padding = new Padding(0, 12, 0, 0),
             Margin = Padding.Empty
         };
 
