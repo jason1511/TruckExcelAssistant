@@ -7,12 +7,18 @@ public sealed class HaulListControl : UserControl
 {
     private readonly DatabaseService _database;
     private readonly TextBox _search = new();
+    private readonly ComboBox _filter = new();
     private readonly Label _resultCount = new();
     private readonly DataGridView _grid = new();
+    private readonly Button _editButton;
+    private readonly Button _trashButton;
 
     public HaulListControl(DatabaseService database)
     {
         _database = database;
+        _editButton = AppTheme.CreateSecondaryButton("Edit / lanjutkan");
+        _trashButton = AppTheme.CreateSecondaryButton("Pindahkan ke Sampah");
+
         Dock = DockStyle.Fill;
         BackColor = AppTheme.WindowBackground;
         ForeColor = AppTheme.TextPrimary;
@@ -22,16 +28,29 @@ public sealed class HaulListControl : UserControl
         BuildLayout();
         ConfigureGrid();
         WireEvents();
+        UpdateActionButtons();
     }
+
+    public event Action<HaulRecord>? EditRequested;
+
+    public event EventHandler? DataChanged;
 
     public void ReloadData()
     {
-        var records = _database.GetHauls(_search.Text);
+        var status = _filter.SelectedIndex switch
+        {
+            1 => HaulStatus.Saved,
+            2 => HaulStatus.Draft,
+            _ => (HaulStatus?)null
+        };
+        var deletedOnly = _filter.SelectedIndex == 3;
+        var records = _database.GetHauls(_search.Text, status, deletedOnly);
+
         _grid.Rows.Clear();
         foreach (var record in records)
         {
             var draft = record.Draft;
-            _grid.Rows.Add(
+            var rowIndex = _grid.Rows.Add(
                 record.Id,
                 draft.Date.ToString("dd/MM/yyyy"),
                 draft.LicencePlate,
@@ -41,12 +60,16 @@ public sealed class HaulListControl : UserControl
                 $"{IndonesianNumber.Format(draft.ReceivedWeightKg)} kg",
                 IndonesianNumber.Rupiah(draft.RatePerKg),
                 IndonesianNumber.Rupiah(draft.GrossAmount),
-                record.Status == HaulStatus.Draft ? "Draft" : "Tersimpan");
+                record.DeletedAt is not null
+                    ? "Sampah"
+                    : record.Status == HaulStatus.Draft ? "Draft" : "Tersimpan");
+            _grid.Rows[rowIndex].Tag = record;
         }
 
         _resultCount.Text = records.Count == 1
             ? "1 perjalanan"
             : $"{records.Count} perjalanan";
+        UpdateActionButtons();
     }
 
     private void BuildLayout()
@@ -55,12 +78,13 @@ public sealed class HaulListControl : UserControl
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 3,
+            RowCount = 4,
             Margin = Padding.Empty,
             Padding = Padding.Empty
         };
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 70F));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 62F));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 52F));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
 
         var heading = new Panel { Dock = DockStyle.Fill, Margin = Padding.Empty };
@@ -74,7 +98,7 @@ public sealed class HaulListControl : UserControl
         });
         heading.Controls.Add(new Label
         {
-            Text = "Cari perjalanan yang sudah tersimpan atau masih berupa draft.",
+            Text = "Cari, lanjutkan draft, edit, atau pulihkan data dari Sampah.",
             AutoSize = true,
             Font = new Font("Segoe UI", 9F),
             ForeColor = AppTheme.TextSecondary,
@@ -86,19 +110,26 @@ public sealed class HaulListControl : UserControl
             Dock = DockStyle.Fill,
             BackColor = AppTheme.Surface,
             BorderStyle = BorderStyle.FixedSingle,
-            ColumnCount = 3,
+            ColumnCount = 4,
             RowCount = 1,
             Margin = new Padding(0, 0, 0, 12),
             Padding = new Padding(12, 9, 12, 9)
         };
         toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-        toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150F));
-        toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 110F));
+        toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 155F));
+        toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 135F));
+        toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 105F));
 
         _search.Dock = DockStyle.Fill;
         _search.BorderStyle = BorderStyle.FixedSingle;
         _search.PlaceholderText = "Cari nopol, customer, muatan, atau lokasi...";
         _search.Margin = new Padding(0, 0, 12, 0);
+
+        _filter.Dock = DockStyle.Fill;
+        _filter.DropDownStyle = ComboBoxStyle.DropDownList;
+        _filter.Items.AddRange(["Semua data", "Tersimpan", "Draft", "Sampah"]);
+        _filter.SelectedIndex = 0;
+        _filter.Margin = new Padding(0, 0, 12, 0);
 
         _resultCount.Dock = DockStyle.Fill;
         _resultCount.TextAlign = ContentAlignment.MiddleRight;
@@ -112,8 +143,35 @@ public sealed class HaulListControl : UserControl
         refreshButton.Click += (_, _) => ReloadData();
 
         toolbar.Controls.Add(_search, 0, 0);
-        toolbar.Controls.Add(_resultCount, 1, 0);
-        toolbar.Controls.Add(refreshButton, 2, 0);
+        toolbar.Controls.Add(_filter, 1, 0);
+        toolbar.Controls.Add(_resultCount, 2, 0);
+        toolbar.Controls.Add(refreshButton, 3, 0);
+
+        var actions = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 3,
+            RowCount = 1,
+            Margin = Padding.Empty,
+            Padding = new Padding(0, 0, 0, 10)
+        };
+        actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+        actions.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150F));
+        actions.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 185F));
+        actions.Controls.Add(new Label
+        {
+            Text = "Pilih satu baris atau klik dua kali untuk mengedit.",
+            Dock = DockStyle.Fill,
+            ForeColor = AppTheme.TextSecondary,
+            TextAlign = ContentAlignment.MiddleLeft
+        }, 0, 0);
+
+        _editButton.Dock = DockStyle.Fill;
+        _editButton.Margin = new Padding(0, 0, 8, 0);
+        _trashButton.Dock = DockStyle.Fill;
+        _trashButton.Margin = Padding.Empty;
+        actions.Controls.Add(_editButton, 1, 0);
+        actions.Controls.Add(_trashButton, 2, 0);
 
         var gridPanel = new Panel
         {
@@ -126,7 +184,8 @@ public sealed class HaulListControl : UserControl
 
         root.Controls.Add(heading, 0, 0);
         root.Controls.Add(toolbar, 0, 1);
-        root.Controls.Add(gridPanel, 0, 2);
+        root.Controls.Add(actions, 0, 2);
+        root.Controls.Add(gridPanel, 0, 3);
         Controls.Add(root);
     }
 
@@ -167,20 +226,80 @@ public sealed class HaulListControl : UserControl
         _grid.Columns.Add("Gross", "Jumlah");
         _grid.Columns.Add("Status", "Status");
         _grid.Columns[0].Visible = false;
-        _grid.Columns[1].FillWeight = 72;
-        _grid.Columns[2].FillWeight = 82;
-        _grid.Columns[3].FillWeight = 105;
-        _grid.Columns[4].FillWeight = 120;
-        _grid.Columns[5].FillWeight = 90;
-        _grid.Columns[6].FillWeight = 85;
-        _grid.Columns[7].FillWeight = 80;
-        _grid.Columns[8].FillWeight = 90;
-        _grid.Columns[9].FillWeight = 72;
     }
 
     private void WireEvents()
     {
         _search.TextChanged += (_, _) => ReloadData();
+        _filter.SelectedIndexChanged += (_, _) => ReloadData();
+        _grid.SelectionChanged += (_, _) => UpdateActionButtons();
+        _grid.CellDoubleClick += (_, e) =>
+        {
+            if (e.RowIndex >= 0)
+            {
+                EditSelected();
+            }
+        };
+        _editButton.Click += (_, _) => EditSelected();
+        _trashButton.Click += (_, _) => TrashOrRestoreSelected();
+    }
+
+    private HaulRecord? SelectedRecord() =>
+        _grid.SelectedRows.Count == 1
+            ? _grid.SelectedRows[0].Tag as HaulRecord
+            : null;
+
+    private void EditSelected()
+    {
+        var record = SelectedRecord();
+        if (record is null || record.DeletedAt is not null)
+        {
+            return;
+        }
+        EditRequested?.Invoke(record);
+    }
+
+    private void TrashOrRestoreSelected()
+    {
+        var record = SelectedRecord();
+        if (record is null)
+        {
+            return;
+        }
+
+        if (record.DeletedAt is not null)
+        {
+            _database.RestoreFromTrash(record.Id);
+        }
+        else
+        {
+            var identity = string.IsNullOrWhiteSpace(record.Draft.LicencePlate)
+                ? $"data #{record.Id}"
+                : record.Draft.LicencePlate;
+            var result = MessageBox.Show(
+                $"Pindahkan {identity} ke Sampah? Data dapat dipulihkan kembali.",
+                "Pindahkan ke Sampah",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Warning,
+                MessageBoxDefaultButton.Button2);
+            if (result != DialogResult.Yes)
+            {
+                return;
+            }
+            _database.MoveToTrash(record.Id);
+        }
+
+        ReloadData();
+        DataChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void UpdateActionButtons()
+    {
+        var record = SelectedRecord();
+        var isTrash = record?.DeletedAt is not null;
+        _editButton.Enabled = record is not null && !isTrash;
+        _trashButton.Enabled = record is not null;
+        _trashButton.Text = isTrash ? "Pulihkan" : "Pindahkan ke Sampah";
     }
 
     private static string BuildRoute(HaulDraft draft)

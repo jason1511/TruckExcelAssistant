@@ -22,6 +22,16 @@ public sealed class MainForm : Form
             _haulListControl.ReloadData();
             UpdateDatabaseStatus();
         };
+        _haulListControl.EditRequested += record =>
+        {
+            ShowPage("Input Angkutan");
+            _newHaulControl.LoadRecord(record);
+        };
+        _haulListControl.DataChanged += (_, _) =>
+        {
+            _newHaulControl.RefreshSuggestions();
+            UpdateDatabaseStatus();
+        };
 
         Text = "Truck Excel Assistant";
         StartPosition = FormStartPosition.CenterScreen;

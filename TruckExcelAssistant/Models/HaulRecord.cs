@@ -5,4 +5,5 @@ public sealed record HaulRecord(
     HaulDraft Draft,
     HaulStatus Status,
     DateTime CreatedAt,
-    DateTime UpdatedAt);
+    DateTime UpdatedAt,
+    DateTime? DeletedAt);

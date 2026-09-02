@@ -45,15 +45,26 @@ public sealed class DatabaseService
                 preview_layout INTEGER NOT NULL DEFAULT 2,
                 status TEXT NOT NULL DEFAULT 'Saved' CHECK (status IN ('Draft', 'Saved')),
                 created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
+                updated_at TEXT NOT NULL,
+                deleted_at TEXT NULL
             );
 
             CREATE INDEX IF NOT EXISTS ix_hauls_date ON hauls(haul_date DESC);
             CREATE INDEX IF NOT EXISTS ix_hauls_plate ON hauls(licence_plate COLLATE NOCASE);
             CREATE INDEX IF NOT EXISTS ix_hauls_customer ON hauls(customer COLLATE NOCASE);
-            PRAGMA user_version = 1;
             """;
         command.ExecuteNonQuery();
+
+        if (!ColumnExists(connection, "hauls", "deleted_at"))
+        {
+            using var migration = connection.CreateCommand();
+            migration.CommandText = "ALTER TABLE hauls ADD COLUMN deleted_at TEXT NULL;";
+            migration.ExecuteNonQuery();
+        }
+
+        using var version = connection.CreateCommand();
+        version.CommandText = "PRAGMA user_version = 2;";
+        version.ExecuteNonQuery();
     }
 
     public long AddHaul(HaulDraft draft, HaulStatus status)
@@ -99,29 +110,82 @@ public sealed class DatabaseService
         return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture);
     }
 
-    public IReadOnlyList<HaulRecord> GetHauls(string? searchText = null)
+    public void UpdateHaul(long id, HaulDraft draft, HaulStatus status)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE hauls SET
+                haul_date = $date,
+                licence_plate = $plate,
+                cargo = $cargo,
+                customer = $customer,
+                origin = $origin,
+                destination = $destination,
+                loaded_weight_kg = $loadedWeight,
+                received_weight_kg = $receivedWeight,
+                rate_per_kg = $rate,
+                bon_sangu = $bonSangu,
+                rejection_cost = $rejectionCost,
+                claim_amount = $claimAmount,
+                driver_road_money = $driverRoadMoney,
+                other_expense = $otherExpense,
+                notes = $notes,
+                preview_layout = $layout,
+                status = $status,
+                updated_at = $updatedAt
+            WHERE id = $id AND deleted_at IS NULL;
+            """;
+        AddDraftParameters(command, draft, status);
+        command.Parameters.AddWithValue("$id", id);
+        if (command.ExecuteNonQuery() == 0)
+        {
+            throw new InvalidOperationException("Data angkutan tidak ditemukan atau sudah berada di Sampah.");
+        }
+    }
+
+    public HaulRecord? GetHaul(long id)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = $"""
+            {SelectHaulSql}
+            WHERE id = $id;
+            """;
+        command.Parameters.AddWithValue("$id", id);
+        using var reader = command.ExecuteReader();
+        return reader.Read() ? ReadHaul(reader) : null;
+    }
+
+    public IReadOnlyList<HaulRecord> GetHauls(
+        string? searchText = null,
+        HaulStatus? status = null,
+        bool deletedOnly = false)
     {
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
         var search = searchText?.Trim() ?? string.Empty;
-        command.CommandText = """
-            SELECT id, haul_date, licence_plate, cargo, customer, origin, destination,
-                   loaded_weight_kg, received_weight_kg, rate_per_kg, bon_sangu,
-                   rejection_cost, claim_amount, driver_road_money, other_expense,
-                   notes, preview_layout, status, created_at, updated_at
-            FROM hauls
-            WHERE $search = ''
-               OR licence_plate LIKE $pattern COLLATE NOCASE
-               OR cargo LIKE $pattern COLLATE NOCASE
-               OR customer LIKE $pattern COLLATE NOCASE
-               OR origin LIKE $pattern COLLATE NOCASE
-               OR destination LIKE $pattern COLLATE NOCASE
-               OR notes LIKE $pattern COLLATE NOCASE
+        command.CommandText = $"""
+            {SelectHaulSql}
+            WHERE (
+                    $search = ''
+                 OR licence_plate LIKE $pattern COLLATE NOCASE
+                 OR cargo LIKE $pattern COLLATE NOCASE
+                 OR customer LIKE $pattern COLLATE NOCASE
+                 OR origin LIKE $pattern COLLATE NOCASE
+                 OR destination LIKE $pattern COLLATE NOCASE
+                 OR notes LIKE $pattern COLLATE NOCASE
+            )
+              AND (($deletedOnly = 1 AND deleted_at IS NOT NULL)
+                OR ($deletedOnly = 0 AND deleted_at IS NULL))
+              AND ($status = '' OR status = $status)
             ORDER BY haul_date DESC, id DESC
             LIMIT 500;
             """;
         command.Parameters.AddWithValue("$search", search);
         command.Parameters.AddWithValue("$pattern", $"%{search}%");
+        command.Parameters.AddWithValue("$deletedOnly", deletedOnly ? 1 : 0);
+        command.Parameters.AddWithValue("$status", status?.ToString() ?? string.Empty);
 
         var records = new List<HaulRecord>();
         using var reader = command.ExecuteReader();
@@ -130,6 +194,34 @@ public sealed class DatabaseService
             records.Add(ReadHaul(reader));
         }
         return records;
+    }
+
+    public void MoveToTrash(long id)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE hauls
+            SET deleted_at = $deletedAt, updated_at = $deletedAt
+            WHERE id = $id AND deleted_at IS NULL;
+            """;
+        command.Parameters.AddWithValue("$id", id);
+        command.Parameters.AddWithValue("$deletedAt", DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture));
+        command.ExecuteNonQuery();
+    }
+
+    public void RestoreFromTrash(long id)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE hauls
+            SET deleted_at = NULL, updated_at = $updatedAt
+            WHERE id = $id AND deleted_at IS NOT NULL;
+            """;
+        command.Parameters.AddWithValue("$id", id);
+        command.Parameters.AddWithValue("$updatedAt", DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture));
+        command.ExecuteNonQuery();
     }
 
     public IReadOnlyList<string> GetSuggestions(SuggestionField field)
@@ -149,7 +241,7 @@ public sealed class DatabaseService
         command.CommandText = $"""
             SELECT {column}
             FROM hauls
-            WHERE TRIM({column}) <> ''
+            WHERE TRIM({column}) <> '' AND deleted_at IS NULL
             GROUP BY {column} COLLATE NOCASE
             ORDER BY MAX(id) DESC
             LIMIT 100;
@@ -168,7 +260,7 @@ public sealed class DatabaseService
     {
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT COUNT(*) FROM hauls;";
+        command.CommandText = "SELECT COUNT(*) FROM hauls WHERE deleted_at IS NULL;";
         return Convert.ToInt32(command.ExecuteScalar(), CultureInfo.InvariantCulture);
     }
 
@@ -181,6 +273,51 @@ public sealed class DatabaseService
         command.ExecuteNonQuery();
         return connection;
     }
+
+    private static void AddDraftParameters(SqliteCommand command, HaulDraft draft, HaulStatus status)
+    {
+        command.Parameters.AddWithValue("$date", draft.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$plate", draft.LicencePlate);
+        command.Parameters.AddWithValue("$cargo", draft.Cargo);
+        command.Parameters.AddWithValue("$customer", draft.Customer);
+        command.Parameters.AddWithValue("$origin", draft.Origin);
+        command.Parameters.AddWithValue("$destination", draft.Destination);
+        command.Parameters.AddWithValue("$loadedWeight", Convert.ToDouble(draft.LoadedWeightKg));
+        command.Parameters.AddWithValue("$receivedWeight", Convert.ToDouble(draft.ReceivedWeightKg));
+        command.Parameters.AddWithValue("$rate", Convert.ToDouble(draft.RatePerKg));
+        command.Parameters.AddWithValue("$bonSangu", Convert.ToDouble(draft.BonSangu));
+        command.Parameters.AddWithValue("$rejectionCost", Convert.ToDouble(draft.RejectionCost));
+        command.Parameters.AddWithValue("$claimAmount", Convert.ToDouble(draft.ClaimAmount));
+        command.Parameters.AddWithValue("$driverRoadMoney", Convert.ToDouble(draft.DriverRoadMoney));
+        command.Parameters.AddWithValue("$otherExpense", Convert.ToDouble(draft.OtherExpense));
+        command.Parameters.AddWithValue("$notes", draft.Notes);
+        command.Parameters.AddWithValue("$layout", (int)draft.Layout);
+        command.Parameters.AddWithValue("$status", status.ToString());
+        command.Parameters.AddWithValue("$updatedAt", DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture));
+    }
+
+    private static bool ColumnExists(SqliteConnection connection, string tableName, string columnName)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = $"PRAGMA table_info({tableName});";
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            if (reader.GetString(1).Equals(columnName, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private const string SelectHaulSql = """
+        SELECT id, haul_date, licence_plate, cargo, customer, origin, destination,
+               loaded_weight_kg, received_weight_kg, rate_per_kg, bon_sangu,
+               rejection_cost, claim_amount, driver_road_money, other_expense,
+               notes, preview_layout, status, created_at, updated_at, deleted_at
+        FROM hauls
+        """;
 
     private static HaulRecord ReadHaul(SqliteDataReader reader)
     {
@@ -215,9 +352,12 @@ public sealed class DatabaseService
             draft,
             status,
             DateTime.Parse(reader.GetString(18), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
-            DateTime.Parse(reader.GetString(19), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind));
+            DateTime.Parse(reader.GetString(19), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+            reader.IsDBNull(20)
+                ? null
+                : DateTime.Parse(reader.GetString(20), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind));
     }
 
     private static decimal ToDecimal(SqliteDataReader reader, int ordinal) =>
-        Convert.ToDecimal(reader.GetDouble(ordinal), CultureInfo.InvariantCulture);
+        (decimal)reader.GetDouble(ordinal);
 }

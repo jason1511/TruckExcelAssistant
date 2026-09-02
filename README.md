@@ -11,7 +11,9 @@ The current phase provides a responsive native WinForms shell, a universal haul-
 - editable customer dropdown ready to learn from saved customer names;
 - a SQLite database stored beside the executable;
 - working saved and draft records;
-- a searchable Data Angkutan screen;
+- a searchable Data Angkutan screen with saved, draft, and trash filters;
+- edit and resume-draft workflows that update the original record;
+- recoverable deletion with restore from Sampah;
 - manual entry for journey, weight, rate, and expense information;
 - live gross, adjustment, and final calculations;
 - licence-plate normalization;

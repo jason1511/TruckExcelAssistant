@@ -38,11 +38,16 @@ public sealed class NewHaulControl : UserControl
     private readonly Label _finalLabel = new();
     private readonly Label _finalValue = new();
     private readonly Label _calculationNote = new();
+    private readonly Label _formStateLabel = new();
     private readonly DataGridView _previewGrid = new();
     private readonly Dictionary<OutputLayout, Button> _layoutButtons = [];
     private readonly ErrorProvider _errors = new();
+    private readonly Button _draftButton = AppTheme.CreateSecondaryButton("Simpan sebagai draft");
+    private readonly Button _saveButton = AppTheme.CreatePrimaryButton("Simpan angkutan");
+    private readonly Button _cancelEditButton = AppTheme.CreateSecondaryButton("Batal mengedit");
 
     private OutputLayout _layout = OutputLayout.CompleteInvoice;
+    private long? _editingId;
 
     public NewHaulControl(DatabaseService database)
     {
@@ -62,6 +67,43 @@ public sealed class NewHaulControl : UserControl
     }
 
     public event EventHandler? HaulStored;
+
+    public void LoadRecord(HaulRecord record)
+    {
+        if (record.DeletedAt is not null)
+        {
+            throw new InvalidOperationException("Pulihkan data dari Sampah sebelum mengeditnya.");
+        }
+
+        RefreshSuggestions();
+        _editingId = record.Id;
+        var draft = record.Draft;
+        _date.Value = draft.Date;
+        _licencePlate.Text = draft.LicencePlate;
+        _cargo.Text = draft.Cargo;
+        _customer.Text = draft.Customer;
+        _origin.Text = draft.Origin;
+        _destination.Text = draft.Destination;
+        SetNumericValue(_loadedWeight, draft.LoadedWeightKg);
+        SetNumericValue(_receivedWeight, draft.ReceivedWeightKg);
+        SetNumericValue(_rate, draft.RatePerKg);
+        SetNumericValue(_bonSangu, draft.BonSangu);
+        SetNumericValue(_rejectionCost, draft.RejectionCost);
+        SetNumericValue(_claimAmount, draft.ClaimAmount);
+        SetNumericValue(_driverRoadMoney, draft.DriverRoadMoney);
+        SetNumericValue(_otherExpense, draft.OtherExpense);
+        _notes.Text = draft.Notes;
+        SetLayout(draft.Layout);
+
+        _saveButton.Text = record.Status == HaulStatus.Draft
+            ? "Selesaikan dan simpan"
+            : "Simpan perubahan";
+        _draftButton.Text = "Simpan perubahan draft";
+        _cancelEditButton.Visible = true;
+        _formStateLabel.Text = $"MENGEDIT DATA #{record.Id}";
+        _formStateLabel.Visible = true;
+        _licencePlate.Focus();
+    }
 
     public void RefreshSuggestions()
     {
@@ -172,6 +214,12 @@ public sealed class NewHaulControl : UserControl
             ForeColor = AppTheme.TextSecondary,
             Location = new Point(2, 38)
         });
+        _formStateLabel.AutoSize = true;
+        _formStateLabel.Font = new Font("Segoe UI", 8F, FontStyle.Bold);
+        _formStateLabel.ForeColor = AppTheme.Accent;
+        _formStateLabel.Location = new Point(2, 57);
+        _formStateLabel.Visible = false;
+        titles.Controls.Add(_formStateLabel);
 
         var layouts = new FlowLayoutPanel
         {
@@ -344,24 +392,26 @@ public sealed class NewHaulControl : UserControl
         layout.Controls.Add(_calculationNote, 0, 5);
         layout.SetColumnSpan(_calculationNote, 2);
 
-        var draftButton = AppTheme.CreateSecondaryButton("Simpan sebagai draft");
-        draftButton.Dock = DockStyle.Top;
-        draftButton.Click += (_, _) => SaveDraft();
-        var saveButton = AppTheme.CreatePrimaryButton("Simpan angkutan");
-        saveButton.Dock = DockStyle.Top;
-        saveButton.Click += (_, _) => SaveHaul();
+        _draftButton.Dock = DockStyle.Top;
+        _draftButton.Click += (_, _) => SaveDraft();
+        _saveButton.Dock = DockStyle.Top;
+        _saveButton.Click += (_, _) => SaveHaul();
+        _cancelEditButton.Dock = DockStyle.Top;
+        _cancelEditButton.Visible = false;
+        _cancelEditButton.Click += (_, _) => CancelEditing();
 
         var actions = new TableLayoutPanel
         {
             Dock = DockStyle.Top,
             AutoSize = true,
             ColumnCount = 1,
-            RowCount = 2,
+            RowCount = 3,
             Margin = new Padding(0, 8, 0, 0),
             Padding = Padding.Empty
         };
-        actions.Controls.Add(draftButton, 0, 0);
-        actions.Controls.Add(saveButton, 0, 1);
+        actions.Controls.Add(_draftButton, 0, 0);
+        actions.Controls.Add(_saveButton, 0, 1);
+        actions.Controls.Add(_cancelEditButton, 0, 2);
         layout.Controls.Add(actions, 0, 6);
         layout.SetColumnSpan(actions, 2);
 
@@ -422,6 +472,7 @@ public sealed class NewHaulControl : UserControl
 
         _previewGrid.Columns.Add("Date", "Tanggal");
         _previewGrid.Columns.Add("Plate", "Nopol");
+        _previewGrid.Columns.Add("Customer", "Customer");
         _previewGrid.Columns.Add("Route", "Rute");
         _previewGrid.Columns.Add("Cargo", "Barang");
         _previewGrid.Columns.Add("Weight", "Berat diterima");
@@ -565,6 +616,7 @@ public sealed class NewHaulControl : UserControl
         _previewGrid.Rows.Add(
             draft.Date.ToString("dd/MM/yyyy"),
             string.IsNullOrWhiteSpace(draft.LicencePlate) ? "—" : draft.LicencePlate,
+            string.IsNullOrWhiteSpace(draft.Customer) ? "—" : draft.Customer,
             BuildRoute(draft),
             string.IsNullOrWhiteSpace(draft.Cargo) ? "—" : draft.Cargo,
             $"{IndonesianNumber.Format(draft.ReceivedWeightKg)} kg",
@@ -615,13 +667,21 @@ public sealed class NewHaulControl : UserControl
     {
         try
         {
-            var id = _database.AddHaul(draft, status);
+            var id = _editingId;
+            if (id.HasValue)
+            {
+                _database.UpdateHaul(id.Value, draft, status);
+            }
+            else
+            {
+                id = _database.AddHaul(draft, status);
+            }
             RefreshSuggestions();
             HaulStored?.Invoke(this, EventArgs.Empty);
 
             var description = status == HaulStatus.Draft ? "Draft" : "Angkutan";
             MessageBox.Show(
-                $"{description} berhasil disimpan dengan nomor #{id}.",
+                $"{description} berhasil disimpan dengan nomor #{id.Value}.",
                 "Tersimpan",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Information);
@@ -639,6 +699,7 @@ public sealed class NewHaulControl : UserControl
 
     private void ResetAfterSave()
     {
+        ResetEditingState();
         _licencePlate.Text = string.Empty;
         foreach (var textBox in NumericInputs())
         {
@@ -646,6 +707,39 @@ public sealed class NewHaulControl : UserControl
         }
         _notes.Clear();
         _licencePlate.Focus();
+    }
+
+    private void CancelEditing()
+    {
+        ResetEditingState();
+        _date.Value = DateTime.Today;
+        _licencePlate.Text = string.Empty;
+        _cargo.Text = string.Empty;
+        _customer.Text = string.Empty;
+        _origin.Text = string.Empty;
+        _destination.Text = string.Empty;
+        foreach (var textBox in NumericInputs())
+        {
+            textBox.Text = "0";
+        }
+        _notes.Clear();
+        SetLayout(OutputLayout.CompleteInvoice);
+        _licencePlate.Focus();
+    }
+
+    private void ResetEditingState()
+    {
+        _editingId = null;
+        _saveButton.Text = "Simpan angkutan";
+        _draftButton.Text = "Simpan sebagai draft";
+        _cancelEditButton.Visible = false;
+        _formStateLabel.Visible = false;
+        _formStateLabel.Text = string.Empty;
+    }
+
+    private static void SetNumericValue(TextBox textBox, decimal value)
+    {
+        textBox.Text = IndonesianNumber.Format(value);
     }
 
     private static void UpdateSuggestions(
