@@ -122,7 +122,7 @@ public sealed class ExcelOutputControl : UserControl
             Padding = Padding.Empty
         };
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 72F));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, _kind == ExcelOutputKind.Invoice ? 142F : 86F));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, _kind == ExcelOutputKind.Invoice ? 166F : 94F));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 54F));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
 
@@ -187,6 +187,15 @@ public sealed class ExcelOutputControl : UserControl
         for (var index = 0; index < 4; index++)
         {
             grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25F));
+        }
+        if (_kind == ExcelOutputKind.Invoice)
+        {
+            grid.RowStyles.Add(new RowStyle(SizeType.Percent, 50F));
+            grid.RowStyles.Add(new RowStyle(SizeType.Percent, 50F));
+        }
+        else
+        {
+            grid.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
         }
 
         AddField(grid, 0, 0, _kind == ExcelOutputKind.Invoice ? "Customer" : "Nomor polisi (kosong = semua)", _subject);
