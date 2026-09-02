@@ -22,3 +22,6 @@ jobs:
 
       - name: Build
         run: dotnet build TruckExcelAssistant.slnx --configuration Release --no-restore
+
+      - name: Exercise Excel exports
+        run: dotnet run --project TruckExcelAssistant/TruckExcelAssistant.csproj --configuration Release --no-build -- --excel-smoke-test

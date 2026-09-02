@@ -11,12 +11,17 @@ public sealed class MainForm : Form
     private readonly DatabaseService _database;
     private readonly NewHaulControl _newHaulControl;
     private readonly HaulListControl _haulListControl;
+    private readonly ExcelOutputControl _invoiceControl;
+    private readonly ExcelOutputControl _ledgerControl;
 
     public MainForm(DatabaseService database)
     {
         _database = database;
         _newHaulControl = new NewHaulControl(database);
         _haulListControl = new HaulListControl(database);
+        var excelExporter = new ExcelExportService();
+        _invoiceControl = new ExcelOutputControl(database, excelExporter, ExcelOutputKind.Invoice);
+        _ledgerControl = new ExcelOutputControl(database, excelExporter, ExcelOutputKind.TruckLedger);
         _newHaulControl.HaulStored += (_, _) =>
         {
             _haulListControl.ReloadData();
@@ -229,6 +234,16 @@ public sealed class MainForm : Form
             case "Data Angkutan":
                 _haulListControl.ReloadData();
                 page = _haulListControl;
+                break;
+            case "Buat Invoice":
+                _invoiceControl.RefreshSuggestions();
+                _invoiceControl.ReloadData();
+                page = _invoiceControl;
+                break;
+            case "Pembukuan Truk":
+                _ledgerControl.RefreshSuggestions();
+                _ledgerControl.ReloadData();
+                page = _ledgerControl;
                 break;
             default:
                 page = BuildPlaceholder(pageName);

@@ -196,6 +196,30 @@ public sealed class DatabaseService
         return records;
     }
 
+    public IReadOnlyList<HaulRecord> GetSavedHaulsForExport(DateTime from, DateTime to)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = $"""
+            {SelectHaulSql}
+            WHERE deleted_at IS NULL
+              AND status = 'Saved'
+              AND haul_date >= $from
+              AND haul_date <= $to
+            ORDER BY haul_date, id;
+            """;
+        command.Parameters.AddWithValue("$from", from.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$to", to.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+
+        var records = new List<HaulRecord>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            records.Add(ReadHaul(reader));
+        }
+        return records;
+    }
+
     public void MoveToTrash(long id)
     {
         using var connection = OpenConnection();

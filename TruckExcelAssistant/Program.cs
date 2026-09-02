@@ -3,8 +3,14 @@ namespace TruckExcelAssistant;
 internal static class Program
 {
     [STAThread]
-    private static void Main()
+    private static void Main(string[] args)
     {
+        if (args.Contains("--excel-smoke-test", StringComparer.OrdinalIgnoreCase))
+        {
+            Services.ExcelExportSmokeTest.Run();
+            return;
+        }
+
         ApplicationConfiguration.Initialize();
         Application.SetDefaultFont(new Font("Segoe UI", 9F));
         try
