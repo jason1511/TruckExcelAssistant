@@ -656,7 +656,7 @@ public sealed class NewHaulControl : UserControl
         comboBox.DropDownStyle = ComboBoxStyle.DropDown;
         comboBox.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
         comboBox.AutoCompleteSource = AutoCompleteSource.ListItems;
-        comboBox.FlatStyle = FlatStyle.Flat;
+        comboBox.FlatStyle = FlatStyle.Standard;
         comboBox.BackColor = AppTheme.Surface;
         comboBox.ForeColor = AppTheme.TextPrimary;
         comboBox.IntegralHeight = false;
@@ -667,7 +667,7 @@ public sealed class NewHaulControl : UserControl
     private static void ConfigureTextBox(TextBox textBox)
     {
         textBox.Dock = DockStyle.Fill;
-        textBox.BorderStyle = BorderStyle.None;
+        textBox.BorderStyle = BorderStyle.FixedSingle;
         textBox.BackColor = AppTheme.Surface;
         textBox.ForeColor = AppTheme.TextPrimary;
         textBox.Margin = Padding.Empty;
@@ -756,40 +756,30 @@ public sealed class NewHaulControl : UserControl
     {
         var field = new Panel();
         ConfigureFieldContainer(field);
+        var layout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 2,
+            Margin = Padding.Empty,
+            Padding = Padding.Empty
+        };
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 21F));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 29F));
+
         var caption = new Label
         {
             Text = label,
-            Dock = DockStyle.Top,
-            Height = 22,
+            Dock = DockStyle.Fill,
             ForeColor = AppTheme.TextSecondary,
             Font = new Font("Segoe UI", 8.5F),
             TextAlign = ContentAlignment.MiddleLeft
         };
-
-        var inputBorder = new Panel
-        {
-            Dock = DockStyle.Fill,
-            BackColor = AppTheme.InputBorder,
-            Padding = new Padding(1),
-            Margin = Padding.Empty
-        };
-        var inputSurface = new Panel
-        {
-            Dock = DockStyle.Fill,
-            BackColor = input.BackColor,
-            Margin = Padding.Empty,
-            Padding = input switch
-            {
-                ComboBox => new Padding(4, 1, 1, 1),
-                DateTimePicker => new Padding(3, 1, 1, 1),
-                _ => new Padding(7, 5, 7, 3)
-            }
-        };
         input.Dock = DockStyle.Fill;
-        inputSurface.Controls.Add(input);
-        inputBorder.Controls.Add(inputSurface);
-        field.Controls.Add(inputBorder);
-        field.Controls.Add(caption);
+        layout.Controls.Add(caption, 0, 0);
+        layout.Controls.Add(input, 0, 1);
+        field.Controls.Add(layout);
         return field;
     }
 

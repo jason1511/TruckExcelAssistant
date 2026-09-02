@@ -42,18 +42,23 @@ public sealed class MainForm : Form
 
     private Control BuildSidebar()
     {
-        var sidebar = new Panel
+        var sidebar = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
             BackColor = AppTheme.Sidebar,
             Padding = new Padding(12, 14, 12, 14),
-            Margin = Padding.Empty
+            Margin = Padding.Empty,
+            ColumnCount = 1,
+            RowCount = 3
         };
+        sidebar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+        sidebar.RowStyles.Add(new RowStyle(SizeType.Absolute, 88F));
+        sidebar.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+        sidebar.RowStyles.Add(new RowStyle(SizeType.Absolute, 52F));
 
         var brand = new Panel
         {
-            Dock = DockStyle.Top,
-            Height = 88,
+            Dock = DockStyle.Fill,
             BackColor = AppTheme.Sidebar,
             Margin = Padding.Empty
         };
@@ -73,12 +78,9 @@ public sealed class MainForm : Form
             Font = new Font("Segoe UI", 8F),
             Location = new Point(10, 51)
         });
-        sidebar.Controls.Add(brand);
-
         var backupStatus = new Label
         {
-            Dock = DockStyle.Bottom,
-            Height = 52,
+            Dock = DockStyle.Fill,
             Text = "DATABASE LOKAL\r\nBelum ada perubahan",
             ForeColor = Color.FromArgb(196, 211, 208),
             BackColor = Color.FromArgb(31, 73, 65),
@@ -86,8 +88,6 @@ public sealed class MainForm : Form
             Padding = new Padding(10, 7, 6, 6),
             TextAlign = ContentAlignment.MiddleLeft
         };
-        sidebar.Controls.Add(backupStatus);
-
         var navigation = new FlowLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -105,7 +105,9 @@ public sealed class MainForm : Form
         AddNavigationButton(navigation, "Pembukuan Truk");
         AddNavigationButton(navigation, "Pengeluaran");
         AddNavigationButton(navigation, "Pengaturan");
-        sidebar.Controls.Add(navigation);
+        sidebar.Controls.Add(brand, 0, 0);
+        sidebar.Controls.Add(navigation, 0, 1);
+        sidebar.Controls.Add(backupStatus, 0, 2);
 
         return sidebar;
     }
