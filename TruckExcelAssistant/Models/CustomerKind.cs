@@ -1,8 +1,8 @@
 namespace TruckExcelAssistant.Models;
 
-public enum OutputMode
+public enum CustomerKind
 {
-    TruckLedger,
+    Other,
     Miguno,
     Agrico
 }

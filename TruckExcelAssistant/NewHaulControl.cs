@@ -34,10 +34,7 @@ public sealed class NewHaulControl : UserControl
     private readonly Label _finalValue = new();
     private readonly Label _calculationNote = new();
     private readonly DataGridView _previewGrid = new();
-    private readonly Dictionary<OutputMode, Button> _modeButtons = [];
     private readonly ErrorProvider _errors = new();
-
-    private OutputMode _mode = OutputMode.Agrico;
 
     public NewHaulControl()
     {
@@ -50,7 +47,8 @@ public sealed class NewHaulControl : UserControl
         ConfigureInputs();
         BuildLayout();
         WireEvents();
-        SetMode(OutputMode.Agrico);
+        _customer.SelectedIndex = 0;
+        ApplyCustomerTemplate();
         Recalculate();
     }
 
@@ -143,33 +141,21 @@ public sealed class NewHaulControl : UserControl
             Location = new Point(2, 38)
         });
 
-        var modes = new FlowLayoutPanel
+        var destinationBadge = new Label
         {
+            Text = "PEMBUKUAN + INVOICE",
             AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = false,
             Anchor = AnchorStyles.Top | AnchorStyles.Right,
-            Margin = new Padding(0, 2, 0, 0),
-            Padding = Padding.Empty
+            Margin = new Padding(0, 6, 0, 0),
+            Padding = new Padding(10, 6, 10, 6),
+            BackColor = AppTheme.AccentSoft,
+            ForeColor = AppTheme.Accent,
+            Font = new Font("Segoe UI", 8.5F, FontStyle.Bold)
         };
-        AddModeButton(modes, OutputMode.TruckLedger, "Pembukuan");
-        AddModeButton(modes, OutputMode.Miguno, "Miguno");
-        AddModeButton(modes, OutputMode.Agrico, "Agrico");
 
         heading.Controls.Add(titles, 0, 0);
-        heading.Controls.Add(modes, 1, 0);
+        heading.Controls.Add(destinationBadge, 1, 0);
         return heading;
-    }
-
-    private void AddModeButton(FlowLayoutPanel host, OutputMode mode, string text)
-    {
-        var button = AppTheme.CreateSecondaryButton(text);
-        button.Width = 94;
-        button.Margin = new Padding(4, 0, 0, 0);
-        button.Tag = mode;
-        button.Click += (_, _) => SetMode(mode);
-        _modeButtons[mode] = button;
-        host.Controls.Add(button);
     }
 
     private Control BuildWorkspace()
@@ -400,7 +386,8 @@ public sealed class NewHaulControl : UserControl
         _previewGrid.Columns.Add("Weight", "Berat diterima");
         _previewGrid.Columns.Add("Rate", "Ongkos");
         _previewGrid.Columns.Add("Gross", "Jumlah");
-        _previewGrid.Columns.Add("Final", "Hasil akhir");
+        _previewGrid.Columns.Add("Invoice", "Total invoice");
+        _previewGrid.Columns.Add("LedgerNet", "Bersih truk");
     }
 
     private void WireEvents()
@@ -421,38 +408,45 @@ public sealed class NewHaulControl : UserControl
             UpdatePreview();
         };
         _cargo.TextChanged += (_, _) => UpdatePreview();
+        _customer.TextChanged += (_, _) => ApplyCustomerTemplate();
         _origin.TextChanged += (_, _) => UpdatePreview();
         _destination.TextChanged += (_, _) => UpdatePreview();
     }
 
-    private void SetMode(OutputMode mode)
+    private CustomerKind CurrentCustomerKind()
     {
-        _mode = mode;
-        foreach (var pair in _modeButtons)
+        var customer = _customer.Text;
+        if (customer.Contains("Miguno", StringComparison.OrdinalIgnoreCase))
         {
-            var selected = pair.Key == mode;
-            pair.Value.BackColor = selected ? AppTheme.Accent : AppTheme.Surface;
-            pair.Value.ForeColor = selected ? Color.White : AppTheme.TextPrimary;
-            pair.Value.FlatAppearance.BorderColor = selected ? AppTheme.Accent : AppTheme.InputBorder;
+            return CustomerKind.Miguno;
         }
-
-        _customerField.Visible = mode != OutputMode.TruckLedger;
-        _bonSanguField.Visible = mode == OutputMode.Miguno;
-        _rejectionCostField.Visible = mode == OutputMode.Agrico;
-        _claimField.Visible = mode == OutputMode.Agrico;
-
-        _adjustmentLabel.Text = mode switch
+        if (customer.Contains("Agrico", StringComparison.OrdinalIgnoreCase))
         {
-            OutputMode.Miguno => "Bon sangu",
-            OutputMode.Agrico => "Biaya / klaim",
-            _ => "Uang jalan / biaya"
+            return CustomerKind.Agrico;
+        }
+        return CustomerKind.Other;
+    }
+
+    private void ApplyCustomerTemplate()
+    {
+        var customerKind = CurrentCustomerKind();
+        _customerField.Visible = true;
+        _bonSanguField.Visible = customerKind is CustomerKind.Miguno or CustomerKind.Other;
+        _rejectionCostField.Visible = customerKind is CustomerKind.Agrico or CustomerKind.Other;
+        _claimField.Visible = customerKind is CustomerKind.Agrico or CustomerKind.Other;
+
+        _adjustmentLabel.Text = customerKind switch
+        {
+            CustomerKind.Miguno => "Bon sangu",
+            CustomerKind.Agrico => "Biaya / klaim",
+            _ => "Penyesuaian invoice"
         };
-        _finalLabel.Text = mode == OutputMode.TruckLedger ? "Perkiraan bersih" : "Total invoice";
-        _calculationNote.Text = mode switch
+        _finalLabel.Text = "Total invoice";
+        _calculationNote.Text = customerKind switch
         {
-            OutputMode.Miguno => "Jumlah = berat diterima × ongkos. Total invoice dikurangi bon sangu.",
-            OutputMode.Agrico => "Jumlah = berat diterima × ongkos, ditambah biaya tolakan, lalu dikurangi klaim.",
-            _ => "Hasil bersih = pemasukan angkutan dikurangi uang jalan sopir dan biaya lainnya."
+            CustomerKind.Miguno => "Template Miguno: invoice dikurangi bon sangu. Data yang sama juga masuk ke pembukuan truk.",
+            CustomerKind.Agrico => "Template Agrico: invoice ditambah biaya tolakan lalu dikurangi klaim. Data yang sama juga masuk ke pembukuan truk.",
+            _ => "Customer lain memakai semua penyesuaian yang diisi. Data yang sama juga masuk ke pembukuan truk."
         };
 
         Recalculate();
@@ -467,14 +461,14 @@ public sealed class NewHaulControl : UserControl
         _differenceValue.ForeColor = draft.WeightDifferenceKg > 0 ? AppTheme.Warning : AppTheme.TextPrimary;
         _grossValue.Text = IndonesianNumber.Rupiah(draft.GrossAmount);
 
-        var adjustment = _mode switch
+        var adjustment = draft.CustomerType switch
         {
-            OutputMode.Miguno => -draft.BonSangu,
-            OutputMode.Agrico => draft.RejectionCost - draft.ClaimAmount,
-            _ => -(draft.DriverRoadMoney + draft.OtherExpense)
+            CustomerKind.Miguno => -draft.BonSangu,
+            CustomerKind.Agrico => draft.RejectionCost - draft.ClaimAmount,
+            _ => draft.RejectionCost - draft.BonSangu - draft.ClaimAmount
         };
         _adjustmentValue.Text = IndonesianNumber.Rupiah(adjustment);
-        _finalValue.Text = IndonesianNumber.Rupiah(draft.FinalAmount);
+        _finalValue.Text = IndonesianNumber.Rupiah(draft.InvoiceAmount);
         UpdatePreview(draft);
     }
 
@@ -496,7 +490,7 @@ public sealed class NewHaulControl : UserControl
             ReadNumber(_driverRoadMoney),
             ReadNumber(_otherExpense),
             _notes.Text.Trim(),
-            _mode);
+            CurrentCustomerKind());
     }
 
     private void UpdatePreview() => UpdatePreview(ReadDraft());
@@ -517,7 +511,8 @@ public sealed class NewHaulControl : UserControl
             $"{IndonesianNumber.Format(draft.ReceivedWeightKg)} kg",
             IndonesianNumber.Rupiah(draft.RatePerKg),
             IndonesianNumber.Rupiah(draft.GrossAmount),
-            IndonesianNumber.Rupiah(draft.FinalAmount));
+            IndonesianNumber.Rupiah(draft.InvoiceAmount),
+            IndonesianNumber.Rupiah(draft.LedgerNetAmount));
     }
 
     private void SaveHaul()
@@ -528,10 +523,7 @@ public sealed class NewHaulControl : UserControl
 
         isValid &= RequireText(_licencePlate, "Nomor polisi wajib diisi.");
         isValid &= RequireText(_cargo, "Jenis muatan wajib diisi.");
-        if (_mode != OutputMode.TruckLedger)
-        {
-            isValid &= RequireText(_customer, "Customer wajib diisi untuk invoice.");
-        }
+        isValid &= RequireText(_customer, "Customer wajib diisi.");
         if (draft.ReceivedWeightKg <= 0)
         {
             _errors.SetError(_receivedWeight, "Berat diterima harus lebih dari nol.");
