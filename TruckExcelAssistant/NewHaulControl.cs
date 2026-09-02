@@ -107,8 +107,13 @@ public sealed class NewHaulControl : UserControl
             Padding = Padding.Empty
         };
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 78F));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 480F));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 174F));
+        root.Resize += (_, _) =>
+        {
+            var availableHeight = Math.Max(0, root.ClientSize.Height - 78);
+            root.RowStyles[1].Height = Math.Clamp(availableHeight * 0.56F, 360F, 520F);
+        };
         Controls.Add(root);
 
         root.Controls.Add(BuildHeading(), 0, 0);
