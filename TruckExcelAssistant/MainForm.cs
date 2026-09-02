@@ -1,14 +1,28 @@
+using TruckExcelAssistant.Services;
+
 namespace TruckExcelAssistant;
 
 public sealed class MainForm : Form
 {
     private readonly Panel _contentHost = new();
     private readonly Label _pageTitle = new();
+    private readonly Label _databaseStatus = new();
     private readonly Dictionary<string, Button> _navigationButtons = new(StringComparer.OrdinalIgnoreCase);
-    private readonly NewHaulControl _newHaulControl = new();
+    private readonly DatabaseService _database;
+    private readonly NewHaulControl _newHaulControl;
+    private readonly HaulListControl _haulListControl;
 
-    public MainForm()
+    public MainForm(DatabaseService database)
     {
+        _database = database;
+        _newHaulControl = new NewHaulControl(database);
+        _haulListControl = new HaulListControl(database);
+        _newHaulControl.HaulStored += (_, _) =>
+        {
+            _haulListControl.ReloadData();
+            UpdateDatabaseStatus();
+        };
+
         Text = "Truck Excel Assistant";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(1080, 700);
@@ -18,6 +32,7 @@ public sealed class MainForm : Form
         AutoScaleMode = AutoScaleMode.Dpi;
 
         BuildLayout();
+        UpdateDatabaseStatus();
         ShowPage("Input Angkutan");
     }
 
@@ -78,16 +93,12 @@ public sealed class MainForm : Form
             Font = new Font("Segoe UI", 8F),
             Location = new Point(10, 51)
         });
-        var backupStatus = new Label
-        {
-            Dock = DockStyle.Fill,
-            Text = "DATABASE LOKAL\r\nBelum ada perubahan",
-            ForeColor = Color.FromArgb(196, 211, 208),
-            BackColor = Color.FromArgb(31, 73, 65),
-            Font = new Font("Segoe UI", 8F),
-            Padding = new Padding(10, 7, 6, 6),
-            TextAlign = ContentAlignment.MiddleLeft
-        };
+        _databaseStatus.Dock = DockStyle.Fill;
+        _databaseStatus.ForeColor = Color.FromArgb(196, 211, 208);
+        _databaseStatus.BackColor = Color.FromArgb(31, 73, 65);
+        _databaseStatus.Font = new Font("Segoe UI", 8F);
+        _databaseStatus.Padding = new Padding(10, 7, 6, 6);
+        _databaseStatus.TextAlign = ContentAlignment.MiddleLeft;
         var navigation = new FlowLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -107,7 +118,7 @@ public sealed class MainForm : Form
         AddNavigationButton(navigation, "Pengaturan");
         sidebar.Controls.Add(brand, 0, 0);
         sidebar.Controls.Add(navigation, 0, 1);
-        sidebar.Controls.Add(backupStatus, 0, 2);
+        sidebar.Controls.Add(_databaseStatus, 0, 2);
 
         return sidebar;
     }
@@ -198,11 +209,30 @@ public sealed class MainForm : Form
         }
 
         _contentHost.Controls.Clear();
-        Control page = pageName == "Input Angkutan"
-            ? _newHaulControl
-            : BuildPlaceholder(pageName);
+        Control page;
+        switch (pageName)
+        {
+            case "Input Angkutan":
+                _newHaulControl.RefreshSuggestions();
+                page = _newHaulControl;
+                break;
+            case "Data Angkutan":
+                _haulListControl.ReloadData();
+                page = _haulListControl;
+                break;
+            default:
+                page = BuildPlaceholder(pageName);
+                break;
+        }
         page.Dock = DockStyle.Fill;
         _contentHost.Controls.Add(page);
+    }
+
+    private void UpdateDatabaseStatus()
+    {
+        var count = _database.CountHauls();
+        _databaseStatus.Text = $"DATABASE LOKAL\r\n{count} perjalanan tersimpan";
+        _databaseStatus.AccessibleDescription = _database.DatabasePath;
     }
 
     private static Control BuildPlaceholder(string pageName)

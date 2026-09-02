@@ -7,6 +7,19 @@ internal static class Program
     {
         ApplicationConfiguration.Initialize();
         Application.SetDefaultFont(new Font("Segoe UI", 9F));
-        Application.Run(new MainForm());
+        try
+        {
+            var database = new Services.DatabaseService();
+            database.Initialize();
+            Application.Run(new MainForm(database));
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                $"Truck Excel Assistant tidak dapat membuka database lokal.\n\n{ex.Message}",
+                "Database tidak tersedia",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Error);
+        }
     }
 }

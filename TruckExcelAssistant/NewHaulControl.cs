@@ -5,6 +5,7 @@ namespace TruckExcelAssistant;
 
 public sealed class NewHaulControl : UserControl
 {
+    private readonly DatabaseService _database;
     private readonly DateTimePicker _date = new();
     private readonly ComboBox _licencePlate = new();
     private readonly ComboBox _cargo = new();
@@ -43,8 +44,9 @@ public sealed class NewHaulControl : UserControl
 
     private OutputLayout _layout = OutputLayout.CompleteInvoice;
 
-    public NewHaulControl()
+    public NewHaulControl(DatabaseService database)
     {
+        _database = database;
         Dock = DockStyle.Fill;
         BackColor = AppTheme.WindowBackground;
         ForeColor = AppTheme.TextPrimary;
@@ -54,8 +56,32 @@ public sealed class NewHaulControl : UserControl
         ConfigureInputs();
         BuildLayout();
         WireEvents();
+        RefreshSuggestions();
         SetLayout(OutputLayout.CompleteInvoice);
         Recalculate();
+    }
+
+    public event EventHandler? HaulStored;
+
+    public void RefreshSuggestions()
+    {
+        UpdateSuggestions(_licencePlate, _database.GetSuggestions(SuggestionField.LicencePlate));
+        UpdateSuggestions(
+            _cargo,
+            _database.GetSuggestions(SuggestionField.Cargo),
+            "SBM", "Jagung", "Tepung", "Pupuk", "Pasir");
+        UpdateSuggestions(
+            _customer,
+            _database.GetSuggestions(SuggestionField.Customer),
+            "Agrico", "Miguno");
+        UpdateSuggestions(
+            _origin,
+            _database.GetSuggestions(SuggestionField.Origin),
+            "Lumajang", "Jember", "Surabaya", "Teluk Lamong", "Jakarta", "Gresik");
+        UpdateSuggestions(
+            _destination,
+            _database.GetSuggestions(SuggestionField.Destination),
+            "Semarang", "Cirebon", "Balaraja", "Surabaya", "Lumajang");
     }
 
     private void ConfigureInputs()
@@ -65,11 +91,6 @@ public sealed class NewHaulControl : UserControl
         ConfigureCombo(_customer, "Nama customer");
         ConfigureCombo(_origin, "Lokasi muat");
         ConfigureCombo(_destination, "Lokasi bongkar");
-
-        _cargo.Items.AddRange(["SBM", "Jagung", "Tepung", "Pupuk", "Pasir"]);
-        _customer.Items.AddRange(["Agrico", "Miguno"]);
-        _origin.Items.AddRange(["Lumajang", "Jember", "Surabaya", "Teluk Lamong", "Jakarta", "Gresik"]);
-        _destination.Items.AddRange(["Semarang", "Cirebon", "Balaraja", "Surabaya", "Lumajang"]);
 
         _date.Format = DateTimePickerFormat.Custom;
         _date.CustomFormat = "dd/MM/yyyy";
@@ -325,7 +346,7 @@ public sealed class NewHaulControl : UserControl
 
         var draftButton = AppTheme.CreateSecondaryButton("Simpan sebagai draft");
         draftButton.Dock = DockStyle.Top;
-        draftButton.Click += (_, _) => ShowDraftMessage();
+        draftButton.Click += (_, _) => SaveDraft();
         var saveButton = AppTheme.CreatePrimaryButton("Simpan angkutan");
         saveButton.Dock = DockStyle.Top;
         saveButton.Click += (_, _) => SaveHaul();
@@ -582,21 +603,68 @@ public sealed class NewHaulControl : UserControl
             return;
         }
 
-        MessageBox.Show(
-            $"Angkutan {draft.LicencePlate} siap disimpan.\n\n" +
-            "Penyimpanan database akan diaktifkan pada tahap berikutnya.",
-            "Validasi berhasil",
-            MessageBoxButtons.OK,
-            MessageBoxIcon.Information);
+        StoreHaul(draft, HaulStatus.Saved);
     }
 
-    private void ShowDraftMessage()
+    private void SaveDraft()
     {
-        MessageBox.Show(
-            "Form sudah siap untuk fitur draft. Penyimpanan database akan ditambahkan pada tahap berikutnya.",
-            "Draft",
-            MessageBoxButtons.OK,
-            MessageBoxIcon.Information);
+        StoreHaul(ReadDraft(), HaulStatus.Draft);
+    }
+
+    private void StoreHaul(HaulDraft draft, HaulStatus status)
+    {
+        try
+        {
+            var id = _database.AddHaul(draft, status);
+            RefreshSuggestions();
+            HaulStored?.Invoke(this, EventArgs.Empty);
+
+            var description = status == HaulStatus.Draft ? "Draft" : "Angkutan";
+            MessageBox.Show(
+                $"{description} berhasil disimpan dengan nomor #{id}.",
+                "Tersimpan",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+            ResetAfterSave();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                $"Data tidak dapat disimpan.\n\n{ex.Message}",
+                "Penyimpanan gagal",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Error);
+        }
+    }
+
+    private void ResetAfterSave()
+    {
+        _licencePlate.Text = string.Empty;
+        foreach (var textBox in NumericInputs())
+        {
+            textBox.Text = "0";
+        }
+        _notes.Clear();
+        _licencePlate.Focus();
+    }
+
+    private static void UpdateSuggestions(
+        ComboBox comboBox,
+        IEnumerable<string> storedValues,
+        params string[] defaults)
+    {
+        var currentText = comboBox.Text;
+        var values = storedValues
+            .Concat(defaults)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        comboBox.BeginUpdate();
+        comboBox.Items.Clear();
+        comboBox.Items.AddRange(values);
+        comboBox.EndUpdate();
+        comboBox.Text = currentText;
     }
 
     private bool RequireText(ComboBox control, string message)
