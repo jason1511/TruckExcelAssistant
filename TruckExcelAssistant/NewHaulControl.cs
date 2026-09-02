@@ -34,7 +34,10 @@ public sealed class NewHaulControl : UserControl
     private readonly Label _finalValue = new();
     private readonly Label _calculationNote = new();
     private readonly DataGridView _previewGrid = new();
+    private readonly Dictionary<OutputLayout, Button> _layoutButtons = [];
     private readonly ErrorProvider _errors = new();
+
+    private OutputLayout _layout = OutputLayout.CompleteInvoice;
 
     public NewHaulControl()
     {
@@ -47,8 +50,7 @@ public sealed class NewHaulControl : UserControl
         ConfigureInputs();
         BuildLayout();
         WireEvents();
-        _customer.SelectedIndex = 0;
-        ApplyCustomerTemplate();
+        SetLayout(OutputLayout.CompleteInvoice);
         Recalculate();
     }
 
@@ -61,7 +63,7 @@ public sealed class NewHaulControl : UserControl
         ConfigureCombo(_destination, "Lokasi bongkar");
 
         _cargo.Items.AddRange(["SBM", "Jagung", "Tepung", "Pupuk", "Pasir"]);
-        _customer.Items.AddRange(["PT. Agrico International", "PT. Miguno Jaya Sejahtera"]);
+        _customer.Items.AddRange(["Agrico", "Miguno"]);
         _origin.Items.AddRange(["Lumajang", "Jember", "Surabaya", "Teluk Lamong", "Jakarta", "Gresik"]);
         _destination.Items.AddRange(["Semarang", "Cirebon", "Balaraja", "Surabaya", "Lumajang"]);
 
@@ -141,21 +143,33 @@ public sealed class NewHaulControl : UserControl
             Location = new Point(2, 38)
         });
 
-        var destinationBadge = new Label
+        var layouts = new FlowLayoutPanel
         {
-            Text = "PEMBUKUAN + INVOICE",
             AutoSize = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
             Anchor = AnchorStyles.Top | AnchorStyles.Right,
-            Margin = new Padding(0, 6, 0, 0),
-            Padding = new Padding(10, 6, 10, 6),
-            BackColor = AppTheme.AccentSoft,
-            ForeColor = AppTheme.Accent,
-            Font = new Font("Segoe UI", 8.5F, FontStyle.Bold)
+            Margin = new Padding(0, 2, 0, 0),
+            Padding = Padding.Empty
         };
+        AddLayoutButton(layouts, OutputLayout.TruckLedger, "Pembukuan", 94);
+        AddLayoutButton(layouts, OutputLayout.CompactInvoice, "Invoice ringkas", 112);
+        AddLayoutButton(layouts, OutputLayout.CompleteInvoice, "Invoice lengkap", 118);
 
         heading.Controls.Add(titles, 0, 0);
-        heading.Controls.Add(destinationBadge, 1, 0);
+        heading.Controls.Add(layouts, 1, 0);
         return heading;
+    }
+
+    private void AddLayoutButton(FlowLayoutPanel host, OutputLayout layout, string text, int width)
+    {
+        var button = AppTheme.CreateSecondaryButton(text);
+        button.Width = width;
+        button.Margin = new Padding(4, 0, 0, 0);
+        button.Tag = layout;
+        button.Click += (_, _) => SetLayout(layout);
+        _layoutButtons[layout] = button;
+        host.Controls.Add(button);
     }
 
     private Control BuildWorkspace()
@@ -386,8 +400,7 @@ public sealed class NewHaulControl : UserControl
         _previewGrid.Columns.Add("Weight", "Berat diterima");
         _previewGrid.Columns.Add("Rate", "Ongkos");
         _previewGrid.Columns.Add("Gross", "Jumlah");
-        _previewGrid.Columns.Add("Invoice", "Total invoice");
-        _previewGrid.Columns.Add("LedgerNet", "Bersih truk");
+        _previewGrid.Columns.Add("Final", "Hasil akhir");
     }
 
     private void WireEvents()
@@ -408,45 +421,39 @@ public sealed class NewHaulControl : UserControl
             UpdatePreview();
         };
         _cargo.TextChanged += (_, _) => UpdatePreview();
-        _customer.TextChanged += (_, _) => ApplyCustomerTemplate();
+        _customer.TextChanged += (_, _) => UpdatePreview();
         _origin.TextChanged += (_, _) => UpdatePreview();
         _destination.TextChanged += (_, _) => UpdatePreview();
     }
 
-    private CustomerKind CurrentCustomerKind()
+    private void SetLayout(OutputLayout layout)
     {
-        var customer = _customer.Text;
-        if (customer.Contains("Miguno", StringComparison.OrdinalIgnoreCase))
+        _layout = layout;
+        foreach (var pair in _layoutButtons)
         {
-            return CustomerKind.Miguno;
+            var selected = pair.Key == layout;
+            pair.Value.BackColor = selected ? AppTheme.Accent : AppTheme.Surface;
+            pair.Value.ForeColor = selected ? Color.White : AppTheme.TextPrimary;
+            pair.Value.FlatAppearance.BorderColor = selected ? AppTheme.Accent : AppTheme.InputBorder;
         }
-        if (customer.Contains("Agrico", StringComparison.OrdinalIgnoreCase))
-        {
-            return CustomerKind.Agrico;
-        }
-        return CustomerKind.Other;
-    }
 
-    private void ApplyCustomerTemplate()
-    {
-        var customerKind = CurrentCustomerKind();
         _customerField.Visible = true;
-        _bonSanguField.Visible = customerKind is CustomerKind.Miguno or CustomerKind.Other;
-        _rejectionCostField.Visible = customerKind is CustomerKind.Agrico or CustomerKind.Other;
-        _claimField.Visible = customerKind is CustomerKind.Agrico or CustomerKind.Other;
+        _bonSanguField.Visible = layout == OutputLayout.CompactInvoice;
+        _rejectionCostField.Visible = layout == OutputLayout.CompleteInvoice;
+        _claimField.Visible = layout == OutputLayout.CompleteInvoice;
 
-        _adjustmentLabel.Text = customerKind switch
+        _adjustmentLabel.Text = layout switch
         {
-            CustomerKind.Miguno => "Bon sangu",
-            CustomerKind.Agrico => "Biaya / klaim",
-            _ => "Penyesuaian invoice"
+            OutputLayout.CompactInvoice => "Bon sangu",
+            OutputLayout.CompleteInvoice => "Biaya / klaim",
+            _ => "Uang jalan / biaya"
         };
-        _finalLabel.Text = "Total invoice";
-        _calculationNote.Text = customerKind switch
+        _finalLabel.Text = layout == OutputLayout.TruckLedger ? "Perkiraan bersih" : "Total invoice";
+        _calculationNote.Text = layout switch
         {
-            CustomerKind.Miguno => "Template Miguno: invoice dikurangi bon sangu. Data yang sama juga masuk ke pembukuan truk.",
-            CustomerKind.Agrico => "Template Agrico: invoice ditambah biaya tolakan lalu dikurangi klaim. Data yang sama juga masuk ke pembukuan truk.",
-            _ => "Customer lain memakai semua penyesuaian yang diisi. Data yang sama juga masuk ke pembukuan truk."
+            OutputLayout.CompactInvoice => "Layout invoice ringkas: jumlah angkutan dikurangi bon sangu. Customer dipilih secara terpisah.",
+            OutputLayout.CompleteInvoice => "Layout invoice lengkap: jumlah ditambah biaya tolakan lalu dikurangi klaim. Customer dipilih secara terpisah.",
+            _ => "Pembukuan: pemasukan angkutan dikurangi uang jalan sopir dan biaya lainnya."
         };
 
         Recalculate();
@@ -461,14 +468,14 @@ public sealed class NewHaulControl : UserControl
         _differenceValue.ForeColor = draft.WeightDifferenceKg > 0 ? AppTheme.Warning : AppTheme.TextPrimary;
         _grossValue.Text = IndonesianNumber.Rupiah(draft.GrossAmount);
 
-        var adjustment = draft.CustomerType switch
+        var adjustment = _layout switch
         {
-            CustomerKind.Miguno => -draft.BonSangu,
-            CustomerKind.Agrico => draft.RejectionCost - draft.ClaimAmount,
-            _ => draft.RejectionCost - draft.BonSangu - draft.ClaimAmount
+            OutputLayout.CompactInvoice => -draft.BonSangu,
+            OutputLayout.CompleteInvoice => draft.RejectionCost - draft.ClaimAmount,
+            _ => -(draft.DriverRoadMoney + draft.OtherExpense)
         };
         _adjustmentValue.Text = IndonesianNumber.Rupiah(adjustment);
-        _finalValue.Text = IndonesianNumber.Rupiah(draft.InvoiceAmount);
+        _finalValue.Text = IndonesianNumber.Rupiah(draft.FinalAmount);
         UpdatePreview(draft);
     }
 
@@ -490,7 +497,7 @@ public sealed class NewHaulControl : UserControl
             ReadNumber(_driverRoadMoney),
             ReadNumber(_otherExpense),
             _notes.Text.Trim(),
-            CurrentCustomerKind());
+            _layout);
     }
 
     private void UpdatePreview() => UpdatePreview(ReadDraft());
@@ -511,8 +518,7 @@ public sealed class NewHaulControl : UserControl
             $"{IndonesianNumber.Format(draft.ReceivedWeightKg)} kg",
             IndonesianNumber.Rupiah(draft.RatePerKg),
             IndonesianNumber.Rupiah(draft.GrossAmount),
-            IndonesianNumber.Rupiah(draft.InvoiceAmount),
-            IndonesianNumber.Rupiah(draft.LedgerNetAmount));
+            IndonesianNumber.Rupiah(draft.FinalAmount));
     }
 
     private void SaveHaul()

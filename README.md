@@ -1,13 +1,14 @@
 # Truck Excel Assistant
 
-A Windows desktop application that reduces repetitive data entry across truck bookkeeping and customer invoices for Miguno and Agrico.
+A Windows desktop application that reduces repetitive data entry across truck bookkeeping and two reusable customer invoice layouts.
 
 ## Current phase
 
 The first phase establishes a responsive native WinForms shell and a universal haul-entry screen. It includes:
 
-- enter each haul once for both truck bookkeeping and customer invoicing;
-- customer-specific invoice fields for Miguno and Agrico;
+- enter each haul once for truck bookkeeping and customer invoicing;
+- selectable bookkeeping, compact invoice, and complete invoice layouts;
+- editable customer dropdown ready to learn from saved customer names;
 - manual entry for journey, weight, rate, and expense information;
 - live gross, adjustment, and final calculations;
 - licence-plate normalization;

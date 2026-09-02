@@ -16,18 +16,16 @@ public sealed record HaulDraft(
     decimal DriverRoadMoney,
     decimal OtherExpense,
     string Notes,
-    CustomerKind CustomerType)
+    OutputLayout Layout)
 {
     public decimal WeightDifferenceKg => LoadedWeightKg - ReceivedWeightKg;
 
     public decimal GrossAmount => ReceivedWeightKg * RatePerKg;
 
-    public decimal InvoiceAmount => CustomerType switch
+    public decimal FinalAmount => Layout switch
     {
-        CustomerKind.Miguno => GrossAmount - BonSangu,
-        CustomerKind.Agrico => GrossAmount + RejectionCost - ClaimAmount,
-        _ => GrossAmount + RejectionCost - BonSangu - ClaimAmount
+        OutputLayout.CompactInvoice => GrossAmount - BonSangu,
+        OutputLayout.CompleteInvoice => GrossAmount + RejectionCost - ClaimAmount,
+        _ => GrossAmount - DriverRoadMoney - OtherExpense
     };
-
-    public decimal LedgerNetAmount => GrossAmount - DriverRoadMoney - OtherExpense;
 }
