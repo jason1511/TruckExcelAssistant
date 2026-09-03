@@ -16,6 +16,7 @@ public sealed class MainForm : Form
     private readonly InvoiceHistoryControl _invoiceHistoryControl;
     private readonly SettingsControl _settingsControl;
     private readonly ExpenseControl _expenseControl;
+    private readonly RingkasanControl _summaryControl;
 
     public MainForm(DatabaseService database)
     {
@@ -28,14 +29,28 @@ public sealed class MainForm : Form
         _invoiceHistoryControl = new InvoiceHistoryControl(database, excelExporter);
         _settingsControl = new SettingsControl(database);
         _expenseControl = new ExpenseControl(database);
-        _invoiceControl.InvoiceGenerated += (_, _) => _invoiceHistoryControl.ReloadData();
-        _invoiceHistoryControl.DataChanged += (_, _) => _invoiceControl.ReloadData();
+        _summaryControl = new RingkasanControl(database);
+        _invoiceControl.InvoiceGenerated += (_, _) =>
+        {
+            _invoiceHistoryControl.ReloadData();
+            _summaryControl.ReloadData();
+        };
+        _invoiceHistoryControl.DataChanged += (_, _) =>
+        {
+            _invoiceControl.ReloadData();
+            _summaryControl.ReloadData();
+        };
         _settingsControl.SettingsSaved += (_, _) => _invoiceControl.RefreshSettings();
-        _expenseControl.ExpensesChanged += (_, _) => _ledgerControl.ReloadData();
+        _expenseControl.ExpensesChanged += (_, _) =>
+        {
+            _ledgerControl.ReloadData();
+            _summaryControl.ReloadData();
+        };
         _newHaulControl.HaulStored += (_, _) =>
         {
             _haulListControl.ReloadData();
             _expenseControl.RefreshSuggestions();
+            _summaryControl.ReloadData();
             UpdateDatabaseStatus();
         };
         _haulListControl.EditRequested += record =>
@@ -46,6 +61,7 @@ public sealed class MainForm : Form
         _haulListControl.DataChanged += (_, _) =>
         {
             _newHaulControl.RefreshSuggestions();
+            _summaryControl.ReloadData();
             UpdateDatabaseStatus();
         };
 
@@ -59,7 +75,7 @@ public sealed class MainForm : Form
 
         BuildLayout();
         UpdateDatabaseStatus();
-        ShowPage("Input Angkutan");
+        ShowPage("Ringkasan");
     }
 
     private void BuildLayout()
@@ -239,6 +255,10 @@ public sealed class MainForm : Form
         Control page;
         switch (pageName)
         {
+            case "Ringkasan":
+                _summaryControl.ReloadData();
+                page = _summaryControl;
+                break;
             case "Input Angkutan":
                 _newHaulControl.RefreshSuggestions();
                 page = _newHaulControl;
