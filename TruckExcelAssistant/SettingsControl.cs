@@ -22,6 +22,9 @@ public sealed class SettingsControl : UserControl
     private readonly Label _saveStatus = new();
     private readonly Button _importButton = AppTheme.CreateSecondaryButton("Impor file Excel");
     private readonly Label _importStatus = new();
+    private readonly Button _seedButton = AppTheme.CreateSecondaryButton("Isi data contoh");
+    private readonly Button _removeSeedButton = AppTheme.CreateSecondaryButton("Hapus data contoh");
+    private readonly Label _seedStatus = new();
 
     public SettingsControl(DatabaseService database)
     {
@@ -41,6 +44,8 @@ public sealed class SettingsControl : UserControl
 
     public event EventHandler<LegacyImportResult>? LegacyDataImported;
 
+    public event EventHandler? DemoDataChanged;
+
     public void LoadSettings()
     {
         var settings = _database.GetSettings();
@@ -57,6 +62,7 @@ public sealed class SettingsControl : UserControl
         _exportDirectory.Text = settings.DefaultExportDirectory;
         _saveStatus.Text = string.Empty;
         UpdateImportStatus();
+        UpdateDemoStatus();
         UpdateNumberPreview();
     }
 
@@ -109,7 +115,7 @@ public sealed class SettingsControl : UserControl
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 4,
+            RowCount = 3,
             Margin = Padding.Empty,
             Padding = Padding.Empty
         };
@@ -149,7 +155,7 @@ public sealed class SettingsControl : UserControl
             Dock = DockStyle.Top,
             AutoSize = true,
             ColumnCount = 1,
-            RowCount = 3,
+            RowCount = 5,
             Margin = Padding.Empty,
             Padding = Padding.Empty
         };
@@ -157,6 +163,7 @@ public sealed class SettingsControl : UserControl
         sections.Controls.Add(BuildPaymentSection(), 0, 1);
         sections.Controls.Add(BuildInvoiceSection(), 0, 2);
         sections.Controls.Add(BuildImportSection(), 0, 3);
+        sections.Controls.Add(BuildDemoSection(), 0, 4);
         scroll.Controls.Add(sections);
 
         var footer = new TableLayoutPanel
@@ -285,6 +292,46 @@ public sealed class SettingsControl : UserControl
         return CreateSection("Impor Excel lama", panel);
     }
 
+    private Control BuildDemoSection()
+    {
+        var panel = new TableLayoutPanel
+        {
+            Dock = DockStyle.Top,
+            Height = 60,
+            ColumnCount = 4,
+            RowCount = 1,
+            Margin = Padding.Empty,
+            Padding = Padding.Empty
+        };
+        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150F));
+        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 140F));
+        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 155F));
+        panel.Controls.Add(new Label
+        {
+            Text = "Data sintetis untuk mencoba Ringkasan, Data Angkutan, Pengeluaran, invoice, dan file Excel.",
+            Dock = DockStyle.Fill,
+            ForeColor = AppTheme.TextSecondary,
+            TextAlign = ContentAlignment.MiddleLeft,
+            AutoEllipsis = true,
+            Margin = Padding.Empty
+        }, 0, 0);
+        _seedStatus.Dock = DockStyle.Fill;
+        _seedStatus.ForeColor = AppTheme.TextSecondary;
+        _seedStatus.TextAlign = ContentAlignment.MiddleRight;
+        _seedStatus.Margin = new Padding(0, 0, 12, 0);
+        _seedButton.Dock = DockStyle.Fill;
+        _seedButton.Margin = new Padding(0, 0, 8, 0);
+        _seedButton.Click += (_, _) => SeedDemoData();
+        _removeSeedButton.Dock = DockStyle.Fill;
+        _removeSeedButton.Margin = Padding.Empty;
+        _removeSeedButton.Click += (_, _) => RemoveDemoData();
+        panel.Controls.Add(_seedStatus, 1, 0);
+        panel.Controls.Add(_seedButton, 2, 0);
+        panel.Controls.Add(_removeSeedButton, 3, 0);
+        return CreateSection("Data contoh", panel);
+    }
+
     private void WireEvents()
     {
         _invoicePrefix.TextChanged += (_, _) => UpdateNumberPreview();
@@ -393,6 +440,72 @@ public sealed class SettingsControl : UserControl
     {
         var count = _database.CountLegacyImportRows();
         _importStatus.Text = count == 0 ? "Belum ada impor" : $"{count} baris tercatat";
+    }
+
+    private void SeedDemoData()
+    {
+        var answer = MessageBox.Show(
+            "Tambahkan data contoh sintetis ke database lokal?\n\nData asli dan data hasil impor tidak akan diubah.",
+            "Isi data contoh",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Question);
+        if (answer != DialogResult.Yes)
+        {
+            return;
+        }
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            _seedButton.Enabled = false;
+            new DemoDataSeeder(_database, new ExcelExportService()).Seed();
+            UpdateDemoStatus();
+            DemoDataChanged?.Invoke(this, EventArgs.Empty);
+            MessageBox.Show(
+                "Data contoh siap: 12 perjalanan, 6 pengeluaran, dan 2 invoice. Satu invoice ditandai lunas dan satu belum lunas.",
+                "Data contoh siap",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+        }
+        catch (Exception exception)
+        {
+            MessageBox.Show(exception.Message, "Gagal mengisi data contoh", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+            UpdateDemoStatus();
+        }
+    }
+
+    private void RemoveDemoData()
+    {
+        var answer = MessageBox.Show(
+            "Hapus seluruh perjalanan, pengeluaran, invoice, dan file Excel yang dibuat oleh data contoh?\n\nData manual dan hasil impor Excel tidak akan dihapus.",
+            "Hapus data contoh",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Warning);
+        if (answer != DialogResult.Yes)
+        {
+            return;
+        }
+        try
+        {
+            new DemoDataSeeder(_database, new ExcelExportService()).Remove();
+            UpdateDemoStatus();
+            DemoDataChanged?.Invoke(this, EventArgs.Empty);
+        }
+        catch (Exception exception)
+        {
+            MessageBox.Show(exception.Message, "Gagal menghapus data contoh", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private void UpdateDemoStatus()
+    {
+        var exists = _database.HasDemoData();
+        _seedStatus.Text = exists ? "Sudah terisi" : "Belum diisi";
+        _seedButton.Enabled = !exists;
+        _removeSeedButton.Enabled = exists;
     }
 
     private void UpdateNumberPreview()

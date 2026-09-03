@@ -189,6 +189,25 @@ internal static class ExcelExportSmokeTest
         {
             throw new InvalidOperationException("Impor Excel lama membuat baris ganda.");
         }
+
+        var demo = new DemoDataSeeder(database, new ExcelExportService());
+        demo.Seed();
+        if (!database.HasDemoData()
+            || database.CountHauls() != 14
+            || database.GetExpenses().Count != 8
+            || database.GetInvoices().Count != 3
+            || database.GetInvoices(status: InvoiceStatus.Generated).Count != 1)
+        {
+            throw new InvalidOperationException("Data contoh tidak dibuat dengan lengkap.");
+        }
+        demo.Remove();
+        if (database.HasDemoData()
+            || database.CountHauls() != 2
+            || database.GetExpenses().Count != 2
+            || database.GetInvoices().Count != 1)
+        {
+            throw new InvalidOperationException("Data contoh tidak dapat dibersihkan dengan aman.");
+        }
     }
 
     private static IReadOnlyList<HaulRecord> SampleRecords()
