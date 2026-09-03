@@ -15,6 +15,7 @@ public sealed class MainForm : Form
     private readonly ExcelOutputControl _ledgerControl;
     private readonly InvoiceHistoryControl _invoiceHistoryControl;
     private readonly SettingsControl _settingsControl;
+    private readonly ExpenseControl _expenseControl;
 
     public MainForm(DatabaseService database)
     {
@@ -26,12 +27,15 @@ public sealed class MainForm : Form
         _ledgerControl = new ExcelOutputControl(database, excelExporter, ExcelOutputKind.TruckLedger);
         _invoiceHistoryControl = new InvoiceHistoryControl(database, excelExporter);
         _settingsControl = new SettingsControl(database);
+        _expenseControl = new ExpenseControl(database);
         _invoiceControl.InvoiceGenerated += (_, _) => _invoiceHistoryControl.ReloadData();
         _invoiceHistoryControl.DataChanged += (_, _) => _invoiceControl.ReloadData();
         _settingsControl.SettingsSaved += (_, _) => _invoiceControl.RefreshSettings();
+        _expenseControl.ExpensesChanged += (_, _) => _ledgerControl.ReloadData();
         _newHaulControl.HaulStored += (_, _) =>
         {
             _haulListControl.ReloadData();
+            _expenseControl.RefreshSuggestions();
             UpdateDatabaseStatus();
         };
         _haulListControl.EditRequested += record =>
@@ -257,6 +261,11 @@ public sealed class MainForm : Form
                 _ledgerControl.RefreshSuggestions();
                 _ledgerControl.ReloadData();
                 page = _ledgerControl;
+                break;
+            case "Pengeluaran":
+                _expenseControl.RefreshSuggestions();
+                _expenseControl.ReloadData();
+                page = _expenseControl;
                 break;
             case "Pengaturan":
                 _settingsControl.LoadSettings();

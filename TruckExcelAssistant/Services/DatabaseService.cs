@@ -80,6 +80,21 @@ public sealed class DatabaseService
                 setting_key TEXT PRIMARY KEY,
                 setting_value TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS expenses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                expense_date TEXT NOT NULL,
+                licence_plate TEXT NOT NULL,
+                category TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                amount REAL NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                deleted_at TEXT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS ix_expenses_date ON expenses(expense_date DESC);
+            CREATE INDEX IF NOT EXISTS ix_expenses_plate ON expenses(licence_plate COLLATE NOCASE);
             """;
         command.ExecuteNonQuery();
 
@@ -91,7 +106,7 @@ public sealed class DatabaseService
         }
 
         using var version = connection.CreateCommand();
-        version.CommandText = "PRAGMA user_version = 4;";
+        version.CommandText = "PRAGMA user_version = 5;";
         version.ExecuteNonQuery();
     }
 
@@ -344,6 +359,149 @@ public sealed class DatabaseService
             command.ExecuteNonQuery();
         }
         transaction.Commit();
+    }
+
+    public long AddExpense(
+        DateTime date,
+        string licencePlate,
+        string category,
+        string description,
+        decimal amount)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO expenses (
+                expense_date, licence_plate, category, description, amount, created_at, updated_at
+            ) VALUES (
+                $date, $plate, $category, $description, $amount, $createdAt, $createdAt
+            );
+            SELECT last_insert_rowid();
+            """;
+        var now = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture);
+        command.Parameters.AddWithValue("$date", date.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$plate", licencePlate.Trim());
+        command.Parameters.AddWithValue("$category", category.Trim());
+        command.Parameters.AddWithValue("$description", description.Trim());
+        command.Parameters.AddWithValue("$amount", Convert.ToDouble(amount));
+        command.Parameters.AddWithValue("$createdAt", now);
+        return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture);
+    }
+
+    public void UpdateExpense(
+        long id,
+        DateTime date,
+        string licencePlate,
+        string category,
+        string description,
+        decimal amount)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE expenses SET
+                expense_date = $date,
+                licence_plate = $plate,
+                category = $category,
+                description = $description,
+                amount = $amount,
+                updated_at = $updatedAt
+            WHERE id = $id AND deleted_at IS NULL;
+            """;
+        command.Parameters.AddWithValue("$id", id);
+        command.Parameters.AddWithValue("$date", date.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$plate", licencePlate.Trim());
+        command.Parameters.AddWithValue("$category", category.Trim());
+        command.Parameters.AddWithValue("$description", description.Trim());
+        command.Parameters.AddWithValue("$amount", Convert.ToDouble(amount));
+        command.Parameters.AddWithValue("$updatedAt", DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture));
+        if (command.ExecuteNonQuery() == 0)
+        {
+            throw new InvalidOperationException("Pengeluaran tidak ditemukan atau sudah berada di Sampah.");
+        }
+    }
+
+    public IReadOnlyList<ExpenseRecord> GetExpenses(string? searchText = null, bool deletedOnly = false)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        var search = searchText?.Trim() ?? string.Empty;
+        command.CommandText = """
+            SELECT id, expense_date, licence_plate, category, description, amount,
+                   created_at, updated_at, deleted_at
+            FROM expenses
+            WHERE ($search = ''
+                   OR licence_plate LIKE $pattern COLLATE NOCASE
+                   OR category LIKE $pattern COLLATE NOCASE
+                   OR description LIKE $pattern COLLATE NOCASE)
+              AND (($deletedOnly = 1 AND deleted_at IS NOT NULL)
+                OR ($deletedOnly = 0 AND deleted_at IS NULL))
+            ORDER BY expense_date DESC, id DESC
+            LIMIT 500;
+            """;
+        command.Parameters.AddWithValue("$search", search);
+        command.Parameters.AddWithValue("$pattern", $"%{search}%");
+        command.Parameters.AddWithValue("$deletedOnly", deletedOnly ? 1 : 0);
+        var records = new List<ExpenseRecord>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            records.Add(ReadExpense(reader));
+        }
+        return records;
+    }
+
+    public IReadOnlyList<ExpenseRecord> GetExpensesForExport(DateTime from, DateTime to, string? licencePlate = null)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        var plate = licencePlate?.Trim() ?? string.Empty;
+        command.CommandText = """
+            SELECT id, expense_date, licence_plate, category, description, amount,
+                   created_at, updated_at, deleted_at
+            FROM expenses
+            WHERE deleted_at IS NULL
+              AND expense_date >= $from
+              AND expense_date <= $to
+              AND ($plate = '' OR licence_plate = $plate COLLATE NOCASE)
+            ORDER BY expense_date, id;
+            """;
+        command.Parameters.AddWithValue("$from", from.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$to", to.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$plate", plate);
+        var records = new List<ExpenseRecord>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            records.Add(ReadExpense(reader));
+        }
+        return records;
+    }
+
+    public void MoveExpenseToTrash(long id)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE expenses SET deleted_at = $now, updated_at = $now
+            WHERE id = $id AND deleted_at IS NULL;
+            """;
+        command.Parameters.AddWithValue("$id", id);
+        command.Parameters.AddWithValue("$now", DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture));
+        command.ExecuteNonQuery();
+    }
+
+    public void RestoreExpenseFromTrash(long id)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE expenses SET deleted_at = NULL, updated_at = $now
+            WHERE id = $id AND deleted_at IS NOT NULL;
+            """;
+        command.Parameters.AddWithValue("$id", id);
+        command.Parameters.AddWithValue("$now", DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture));
+        command.ExecuteNonQuery();
     }
 
     public void RecordGeneratedInvoice(
@@ -651,6 +809,19 @@ public sealed class DatabaseService
                 ? null
                 : DateTime.Parse(reader.GetString(20), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind));
     }
+
+    private static ExpenseRecord ReadExpense(SqliteDataReader reader) => new(
+        reader.GetInt64(0),
+        DateTime.ParseExact(reader.GetString(1), "yyyy-MM-dd", CultureInfo.InvariantCulture),
+        reader.GetString(2),
+        reader.GetString(3),
+        reader.GetString(4),
+        ToDecimal(reader, 5),
+        DateTime.Parse(reader.GetString(6), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+        DateTime.Parse(reader.GetString(7), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+        reader.IsDBNull(8)
+            ? null
+            : DateTime.Parse(reader.GetString(8), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind));
 
     private static decimal ToDecimal(SqliteDataReader reader, int ordinal) =>
         (decimal)reader.GetDouble(ordinal);

@@ -12,6 +12,7 @@ internal static class ExcelExportSmokeTest
         try
         {
             var records = SampleRecords();
+            var expenses = SampleExpenses();
             var exporter = new ExcelExportService();
             var compact = Path.Combine(directory, "invoice-ringkas.xlsx");
             var complete = Path.Combine(directory, "invoice-lengkap.xlsx");
@@ -23,11 +24,11 @@ internal static class ExcelExportSmokeTest
 
             exporter.ExportCompactInvoice(records, "PT CONTOH CUSTOMER", "TJ-20260903-001", DateTime.Today, compact, settings);
             exporter.ExportCompleteInvoice(records, "PT CONTOH CUSTOMER", "TJ-20260903-002", DateTime.Today, complete, settings);
-            exporter.ExportTruckLedger(records, ledger);
+            exporter.ExportTruckLedger(records, ledger, expenses);
 
             Verify(compact, "Invoice", "I4", "A24", "PT TEST TRANSPORT");
             Verify(complete, "Invoice", "K19", "A21", "PT TEST TRANSPORT");
-            Verify(ledger, "N-TEST-01", "A121");
+            Verify(ledger, "N-TEST-01", "A121", "H5", "Ban: Ganti ban belakang");
             VerifyInvoiceDatabase(directory, compact);
         }
         finally
@@ -79,6 +80,28 @@ internal static class ExcelExportSmokeTest
         {
             throw new InvalidOperationException("Pengaturan invoice tidak tersimpan atau diterapkan.");
         }
+        var expenseId = database.AddExpense(
+            date, "N-TEST-01", "Ban", "Ganti ban belakang", 500_000);
+        var expenses = database.GetExpenses();
+        if (expenses.Count != 1 || expenses[0].Amount != 500_000)
+        {
+            throw new InvalidOperationException("Pengeluaran tidak tersimpan.");
+        }
+        database.UpdateExpense(expenseId, date, "N-TEST-01", "Ban", "Ganti dua ban", 750_000);
+        if (database.GetExpensesForExport(date, date, "N-TEST-01").Single().Amount != 750_000)
+        {
+            throw new InvalidOperationException("Perubahan pengeluaran tidak tersimpan.");
+        }
+        database.MoveExpenseToTrash(expenseId);
+        if (database.GetExpenses(deletedOnly: true).Count != 1)
+        {
+            throw new InvalidOperationException("Pengeluaran tidak masuk ke Sampah.");
+        }
+        database.RestoreExpenseFromTrash(expenseId);
+        if (database.GetExpenses().Count != 1)
+        {
+            throw new InvalidOperationException("Pengeluaran tidak berhasil dipulihkan.");
+        }
     }
 
     private static IReadOnlyList<HaulRecord> SampleRecords()
@@ -96,6 +119,17 @@ internal static class ExcelExportSmokeTest
                 "Surabaya", "Semarang", 44_000, 43_900, 145, 0, 0, 0,
                 3_000_000, 100_000, "", OutputLayout.TruckLedger),
                 HaulStatus.Saved, now, now, null)
+        ];
+    }
+
+    private static IReadOnlyList<ExpenseRecord> SampleExpenses()
+    {
+        var now = DateTime.UtcNow;
+        return
+        [
+            new ExpenseRecord(
+                1, new DateTime(2026, 8, 31), "N-TEST-01", "Ban",
+                "Ganti ban belakang", 500_000, now, now, null)
         ];
     }
 
