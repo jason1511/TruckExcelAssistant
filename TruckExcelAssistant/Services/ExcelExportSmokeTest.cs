@@ -16,13 +16,17 @@ internal static class ExcelExportSmokeTest
             var compact = Path.Combine(directory, "invoice-ringkas.xlsx");
             var complete = Path.Combine(directory, "invoice-lengkap.xlsx");
             var ledger = Path.Combine(directory, "pembukuan.xlsx");
+            var settings = new AppSettings(
+                "PT TEST TRANSPORT", "Jl. Contoh 1", "Lumajang", "BCA", "1234567890",
+                "PT TEST TRANSPORT", "TEST SIGNER", "TJ", 3,
+                OutputLayout.CompleteInvoice, directory);
 
-            exporter.ExportCompactInvoice(records, "PT CONTOH CUSTOMER", "TJ-20260903-001", DateTime.Today, compact);
-            exporter.ExportCompleteInvoice(records, "PT CONTOH CUSTOMER", "TJ-20260903-002", DateTime.Today, complete);
+            exporter.ExportCompactInvoice(records, "PT CONTOH CUSTOMER", "TJ-20260903-001", DateTime.Today, compact, settings);
+            exporter.ExportCompleteInvoice(records, "PT CONTOH CUSTOMER", "TJ-20260903-002", DateTime.Today, complete, settings);
             exporter.ExportTruckLedger(records, ledger);
 
-            Verify(compact, "Invoice", "I4");
-            Verify(complete, "Invoice", "K19");
+            Verify(compact, "Invoice", "I4", "A24", "PT TEST TRANSPORT");
+            Verify(complete, "Invoice", "K19", "A21", "PT TEST TRANSPORT");
             Verify(ledger, "N-TEST-01", "A121");
             VerifyInvoiceDatabase(directory, compact);
         }
@@ -64,6 +68,17 @@ internal static class ExcelExportSmokeTest
         {
             throw new InvalidOperationException("Status lunas invoice tidak tersimpan.");
         }
+        database.SaveSettings(new AppSettings(
+            "PT TEST TRANSPORT", "Jl. Contoh 1", "Jember", "BCA", "1234567890",
+            "PT TEST TRANSPORT", "TEST SIGNER", "TJ", 4,
+            OutputLayout.CompactInvoice, directory));
+        var settings = database.GetSettings();
+        if (settings.CompanyName != "PT TEST TRANSPORT"
+            || settings.DefaultInvoiceLayout != OutputLayout.CompactInvoice
+            || database.GetNextInvoiceNumber(date) != "TJ-20260903-0002")
+        {
+            throw new InvalidOperationException("Pengaturan invoice tidak tersimpan atau diterapkan.");
+        }
     }
 
     private static IReadOnlyList<HaulRecord> SampleRecords()
@@ -84,7 +99,12 @@ internal static class ExcelExportSmokeTest
         ];
     }
 
-    private static void Verify(string path, string expectedSheet, string formulaCell)
+    private static void Verify(
+        string path,
+        string expectedSheet,
+        string formulaCell,
+        string? settingsCell = null,
+        string? expectedSettingsValue = null)
     {
         if (!File.Exists(path) || new FileInfo(path).Length == 0)
         {
@@ -99,6 +119,10 @@ internal static class ExcelExportSmokeTest
         if (string.IsNullOrWhiteSpace(sheet.Cell(formulaCell).FormulaA1))
         {
             throw new InvalidOperationException($"Formula {formulaCell} hilang dari {Path.GetFileName(path)}.");
+        }
+        if (settingsCell is not null && sheet.Cell(settingsCell).GetString() != expectedSettingsValue)
+        {
+            throw new InvalidOperationException($"Pengaturan tidak diterapkan ke {Path.GetFileName(path)}.");
         }
     }
 }

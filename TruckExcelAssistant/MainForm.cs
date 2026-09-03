@@ -14,6 +14,7 @@ public sealed class MainForm : Form
     private readonly ExcelOutputControl _invoiceControl;
     private readonly ExcelOutputControl _ledgerControl;
     private readonly InvoiceHistoryControl _invoiceHistoryControl;
+    private readonly SettingsControl _settingsControl;
 
     public MainForm(DatabaseService database)
     {
@@ -24,8 +25,10 @@ public sealed class MainForm : Form
         _invoiceControl = new ExcelOutputControl(database, excelExporter, ExcelOutputKind.Invoice);
         _ledgerControl = new ExcelOutputControl(database, excelExporter, ExcelOutputKind.TruckLedger);
         _invoiceHistoryControl = new InvoiceHistoryControl(database, excelExporter);
+        _settingsControl = new SettingsControl(database);
         _invoiceControl.InvoiceGenerated += (_, _) => _invoiceHistoryControl.ReloadData();
         _invoiceHistoryControl.DataChanged += (_, _) => _invoiceControl.ReloadData();
+        _settingsControl.SettingsSaved += (_, _) => _invoiceControl.RefreshSettings();
         _newHaulControl.HaulStored += (_, _) =>
         {
             _haulListControl.ReloadData();
@@ -242,6 +245,7 @@ public sealed class MainForm : Form
                 break;
             case "Buat Invoice":
                 _invoiceControl.RefreshSuggestions();
+                _invoiceControl.RefreshSettings();
                 _invoiceControl.ReloadData();
                 page = _invoiceControl;
                 break;
@@ -253,6 +257,10 @@ public sealed class MainForm : Form
                 _ledgerControl.RefreshSuggestions();
                 _ledgerControl.ReloadData();
                 page = _ledgerControl;
+                break;
+            case "Pengaturan":
+                _settingsControl.LoadSettings();
+                page = _settingsControl;
                 break;
             default:
                 page = BuildPlaceholder(pageName);

@@ -90,6 +90,17 @@ public sealed class ExcelOutputControl : UserControl
         _subject.Text = current;
     }
 
+    public void RefreshSettings()
+    {
+        if (_kind != ExcelOutputKind.Invoice)
+        {
+            return;
+        }
+        var settings = _database.GetSettings();
+        _layout.SelectedIndex = settings.DefaultInvoiceLayout == OutputLayout.CompactInvoice ? 0 : 1;
+        UpdateAutomaticInvoiceNumber();
+    }
+
     private void ConfigureInputs()
     {
         _from.Format = DateTimePickerFormat.Custom;
@@ -342,13 +353,17 @@ public sealed class ExcelOutputControl : UserControl
             return;
         }
         var suggested = BuildSuggestedFileName();
+        var settings = _database.GetSettings();
+        var preferredDirectory = Directory.Exists(settings.DefaultExportDirectory)
+            ? settings.DefaultExportDirectory
+            : _exporter.ExportDirectory;
         using var dialog = new SaveFileDialog
         {
             Title = "Simpan file Excel",
             Filter = "Excel Workbook (*.xlsx)|*.xlsx",
             DefaultExt = "xlsx",
             AddExtension = true,
-            InitialDirectory = _exporter.ExportDirectory,
+            InitialDirectory = preferredDirectory,
             FileName = suggested,
             OverwritePrompt = true
         };
@@ -365,12 +380,12 @@ public sealed class ExcelOutputControl : UserControl
             }
             else if (_layout.SelectedIndex == 0)
             {
-                _exporter.ExportCompactInvoice(selected, _subject.Text, _invoiceNumber.Text, _issueDate.Value, dialog.FileName);
+                _exporter.ExportCompactInvoice(selected, _subject.Text, _invoiceNumber.Text, _issueDate.Value, dialog.FileName, settings);
                 RecordInvoice(selected, OutputLayout.CompactInvoice, dialog.FileName);
             }
             else
             {
-                _exporter.ExportCompleteInvoice(selected, _subject.Text, _invoiceNumber.Text, _issueDate.Value, dialog.FileName);
+                _exporter.ExportCompleteInvoice(selected, _subject.Text, _invoiceNumber.Text, _issueDate.Value, dialog.FileName, settings);
                 RecordInvoice(selected, OutputLayout.CompleteInvoice, dialog.FileName);
             }
 

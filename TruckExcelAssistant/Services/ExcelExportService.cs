@@ -15,7 +15,8 @@ public sealed class ExcelExportService
         string customer,
         string invoiceNumber,
         DateTime issueDate,
-        string outputPath)
+        string outputPath,
+        AppSettings? settings = null)
     {
         ValidateCount(records, 19, "Invoice ringkas");
         using var workbook = CreateCompactWorkbook();
@@ -41,7 +42,7 @@ public sealed class ExcelExportService
         sheet.Cell("G23").FormulaA1 = "=SUM(G4:G22)";
         sheet.Cell("H23").FormulaA1 = "=SUM(H4:H22)";
         sheet.Cell("I23").FormulaA1 = "=SUM(I4:I22)";
-        sheet.Cell("G24").Value = $"Lumajang, {IndonesianDate(issueDate)}";
+        ApplyCompactSettings(sheet, settings ?? AppSettings.Default, issueDate);
         Finish(workbook, outputPath);
     }
 
@@ -50,7 +51,8 @@ public sealed class ExcelExportService
         string customer,
         string invoiceNumber,
         DateTime issueDate,
-        string outputPath)
+        string outputPath,
+        AppSettings? settings = null)
     {
         ValidateCount(records, 13, "Invoice lengkap");
         using var workbook = CreateCompleteWorkbook();
@@ -78,7 +80,7 @@ public sealed class ExcelExportService
         sheet.Cell("K17").FormulaA1 = "=SUM(K4:K16)";
         SetNumber(sheet.Cell("K18"), records.Sum(item => item.Draft.ClaimAmount));
         sheet.Cell("K19").FormulaA1 = "=K17-K18";
-        sheet.Cell("I21").Value = $"Lumajang, {IndonesianDate(issueDate)}";
+        ApplyCompleteSettings(sheet, settings ?? AppSettings.Default, issueDate);
         Finish(workbook, outputPath);
     }
 
@@ -162,10 +164,12 @@ public sealed class ExcelExportService
         sheet.Range("A23:I23").Style.Font.Bold = true;
         sheet.Range("A23:I23").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
         sheet.Range("G24:I24").Merge();
-        sheet.Cell("B26").Value = "Informasi pembayaran";
-        sheet.Cell("B26").Style.Font.Italic = true;
-        sheet.Cell("G26").Value = "Dibuat oleh";
-        sheet.Cell("G28").Value = "________________________";
+        sheet.Range("A24:F24").Merge();
+        sheet.Range("A25:F25").Merge();
+        sheet.Range("A26:F26").Merge();
+        sheet.Range("A27:F27").Merge();
+        sheet.Range("G26:I26").Merge();
+        sheet.Range("G28:I28").Merge();
         sheet.Range("G24:I28").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
         ApplyBorders(sheet.Range("A2:I23"));
         sheet.SheetView.FreezeRows(3);
@@ -218,8 +222,12 @@ public sealed class ExcelExportService
         sheet.Cell("A19").Value = "TOTAL";
         sheet.Range("A17:J19").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
         sheet.Range("I21:K21").Merge();
-        sheet.Cell("I23").Value = "Dibuat oleh";
-        sheet.Cell("I27").Value = "________________________";
+        sheet.Range("A21:H21").Merge();
+        sheet.Range("A22:H22").Merge();
+        sheet.Range("A23:H23").Merge();
+        sheet.Range("A24:H24").Merge();
+        sheet.Range("I23:K23").Merge();
+        sheet.Range("I27:K27").Merge();
         sheet.Range("I21:K27").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
         ApplyBorders(sheet.Range("A2:K19"));
         sheet.SheetView.FreezeRows(3);
@@ -290,6 +298,45 @@ public sealed class ExcelExportService
         {
             sheet.Column(index + 1).Width = widths[index];
         }
+    }
+
+    private static void ApplyCompactSettings(IXLWorksheet sheet, AppSettings settings, DateTime issueDate)
+    {
+        sheet.Cell("A24").Value = settings.CompanyName;
+        sheet.Cell("A24").Style.Font.Bold = true;
+        sheet.Cell("A25").Value = settings.CompanyAddress;
+        sheet.Cell("A26").Value = PaymentLine(settings);
+        sheet.Cell("A27").Value = string.IsNullOrWhiteSpace(settings.BankAccountNumber)
+            ? string.Empty
+            : $"No. rekening: {settings.BankAccountNumber}";
+        sheet.Cell("G24").Value = $"{settings.City}, {IndonesianDate(issueDate)}";
+        sheet.Cell("G26").Value = "Dibuat oleh";
+        sheet.Cell("G28").Value = string.IsNullOrWhiteSpace(settings.SignerName)
+            ? "________________________"
+            : settings.SignerName;
+    }
+
+    private static void ApplyCompleteSettings(IXLWorksheet sheet, AppSettings settings, DateTime issueDate)
+    {
+        sheet.Cell("A21").Value = settings.CompanyName;
+        sheet.Cell("A21").Style.Font.Bold = true;
+        sheet.Cell("A22").Value = settings.CompanyAddress;
+        sheet.Cell("A23").Value = PaymentLine(settings);
+        sheet.Cell("A24").Value = string.IsNullOrWhiteSpace(settings.BankAccountNumber)
+            ? string.Empty
+            : $"No. rekening: {settings.BankAccountNumber}";
+        sheet.Cell("I21").Value = $"{settings.City}, {IndonesianDate(issueDate)}";
+        sheet.Cell("I23").Value = "Dibuat oleh";
+        sheet.Cell("I27").Value = string.IsNullOrWhiteSpace(settings.SignerName)
+            ? "________________________"
+            : settings.SignerName;
+    }
+
+    private static string PaymentLine(AppSettings settings)
+    {
+        var values = new[] { settings.BankName, settings.BankAccountHolder }
+            .Where(value => !string.IsNullOrWhiteSpace(value));
+        return string.Join(" • ", values);
     }
 
     private static void StyleDataArea(IXLRange range, string alternatingColor)
