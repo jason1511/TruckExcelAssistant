@@ -126,6 +126,8 @@ internal static class ExcelExportSmokeTest
             var sheet = workbook.Worksheets.Add("N-LEGACY-01");
             sheet.Cell("A1").Value = "N-LEGACY-01";
             sheet.Cell("A2").Value = "TGL";
+            sheet.Cell("B2").Value = "PEMASUKAN";
+            sheet.Cell("H2").Value = "PENGELUARAN";
             sheet.Cell("B3").Value = "DARI";
             sheet.Cell("C3").Value = "KE";
             sheet.Cell("D3").Value = "BARANG";

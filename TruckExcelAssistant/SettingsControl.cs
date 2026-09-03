@@ -266,7 +266,7 @@ public sealed class SettingsControl : UserControl
         panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150F));
         panel.Controls.Add(new Label
         {
-            Text = "Pilih PEMBUKUAN TRUK dan file invoice lama. Baris yang sama akan digabung dan tidak diimpor dua kali.",
+            Text = "Impor file dengan format seperti tiga contoh awal. Jenis layout dikenali otomatis dan baris yang sama tidak dibuat dua kali.",
             Dock = DockStyle.Fill,
             ForeColor = AppTheme.TextSecondary,
             TextAlign = ContentAlignment.MiddleLeft,

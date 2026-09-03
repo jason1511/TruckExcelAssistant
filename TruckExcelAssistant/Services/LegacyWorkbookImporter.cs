@@ -32,11 +32,12 @@ public sealed class LegacyWorkbookImporter
             throw new FileNotFoundException("Salah satu file Excel yang dipilih tidak ditemukan.");
         }
 
-        foreach (var path in files.Where(IsLedgerFile))
+        var ledgerFiles = files.Where(IsLedgerWorkbook).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var path in ledgerFiles)
         {
             ImportLedger(path);
         }
-        foreach (var path in files.Where(path => !IsLedgerFile(path)))
+        foreach (var path in files.Where(path => !ledgerFiles.Contains(path)))
         {
             ImportInvoiceWorkbook(path);
         }
@@ -319,8 +320,31 @@ public sealed class LegacyWorkbookImporter
         return null;
     }
 
-    private static bool IsLedgerFile(string path) =>
-        Path.GetFileName(path).Contains("PEMBUKUAN", StringComparison.OrdinalIgnoreCase);
+    private static bool IsLedgerWorkbook(string path)
+    {
+        using var workbook = new XLWorkbook(path);
+        foreach (var sheet in workbook.Worksheets)
+        {
+            var lastRow = Math.Min(sheet.LastRowUsed()?.RowNumber() ?? 0, 12);
+            var lastColumn = Math.Min(sheet.LastColumnUsed()?.ColumnNumber() ?? 0, 12);
+            var hasIncome = false;
+            var hasExpenses = false;
+            for (var row = 1; row <= lastRow; row++)
+            {
+                for (var column = 1; column <= lastColumn; column++)
+                {
+                    var value = Header(sheet.Cell(row, column));
+                    hasIncome |= value == "PEMASUKAN";
+                    hasExpenses |= value == "PENGELUARAN";
+                }
+            }
+            if (hasIncome && hasExpenses)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
 
     private static string CustomerName(string heading)
     {
