@@ -95,6 +95,16 @@ public sealed class DatabaseService
 
             CREATE INDEX IF NOT EXISTS ix_expenses_date ON expenses(expense_date DESC);
             CREATE INDEX IF NOT EXISTS ix_expenses_plate ON expenses(licence_plate COLLATE NOCASE);
+
+            CREATE TABLE IF NOT EXISTS legacy_import_rows (
+                source_key TEXT PRIMARY KEY,
+                source_path TEXT NOT NULL,
+                source_sheet TEXT NOT NULL,
+                source_row INTEGER NOT NULL,
+                record_type TEXT NOT NULL,
+                record_id INTEGER NOT NULL,
+                imported_at TEXT NOT NULL
+            );
             """;
         command.ExecuteNonQuery();
 
@@ -106,7 +116,7 @@ public sealed class DatabaseService
         }
 
         using var version = connection.CreateCommand();
-        version.CommandText = "PRAGMA user_version = 5;";
+        version.CommandText = "PRAGMA user_version = 6;";
         version.ExecuteNonQuery();
     }
 
@@ -825,6 +835,80 @@ public sealed class DatabaseService
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
         command.CommandText = "SELECT COUNT(*) FROM hauls WHERE deleted_at IS NULL;";
+        return Convert.ToInt32(command.ExecuteScalar(), CultureInfo.InvariantCulture);
+    }
+
+    public HaulRecord? FindMatchingHaul(
+        DateTime date,
+        string licencePlate,
+        string cargo,
+        decimal receivedWeightKg,
+        decimal ratePerKg)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = $"""
+            {SelectHaulSql}
+            WHERE deleted_at IS NULL
+              AND haul_date = $date
+              AND licence_plate = $plate COLLATE NOCASE
+              AND cargo = $cargo COLLATE NOCASE
+              AND ABS(received_weight_kg - $weight) < 0.5
+              AND ABS(rate_per_kg - $rate) < 0.01
+            ORDER BY id
+            LIMIT 1;
+            """;
+        command.Parameters.AddWithValue("$date", date.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$plate", licencePlate.Trim());
+        command.Parameters.AddWithValue("$cargo", cargo.Trim());
+        command.Parameters.AddWithValue("$weight", Convert.ToDouble(receivedWeightKg));
+        command.Parameters.AddWithValue("$rate", Convert.ToDouble(ratePerKg));
+        using var reader = command.ExecuteReader();
+        return reader.Read() ? ReadHaul(reader) : null;
+    }
+
+    public bool HasLegacyImportRow(string sourceKey)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT EXISTS(SELECT 1 FROM legacy_import_rows WHERE source_key = $key);";
+        command.Parameters.AddWithValue("$key", sourceKey);
+        return Convert.ToInt32(command.ExecuteScalar(), CultureInfo.InvariantCulture) == 1;
+    }
+
+    public void RecordLegacyImportRow(
+        string sourceKey,
+        string sourcePath,
+        string sourceSheet,
+        int sourceRow,
+        string recordType,
+        long recordId)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT OR IGNORE INTO legacy_import_rows (
+                source_key, source_path, source_sheet, source_row,
+                record_type, record_id, imported_at
+            ) VALUES (
+                $key, $path, $sheet, $row, $type, $recordId, $importedAt
+            );
+            """;
+        command.Parameters.AddWithValue("$key", sourceKey);
+        command.Parameters.AddWithValue("$path", sourcePath);
+        command.Parameters.AddWithValue("$sheet", sourceSheet);
+        command.Parameters.AddWithValue("$row", sourceRow);
+        command.Parameters.AddWithValue("$type", recordType);
+        command.Parameters.AddWithValue("$recordId", recordId);
+        command.Parameters.AddWithValue("$importedAt", DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture));
+        command.ExecuteNonQuery();
+    }
+
+    public int CountLegacyImportRows()
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM legacy_import_rows;";
         return Convert.ToInt32(command.ExecuteScalar(), CultureInfo.InvariantCulture);
     }
 

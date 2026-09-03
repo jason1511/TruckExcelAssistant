@@ -41,6 +41,27 @@ public sealed class MainForm : Form
             _summaryControl.ReloadData();
         };
         _settingsControl.SettingsSaved += (_, _) => _invoiceControl.RefreshSettings();
+        _settingsControl.LegacyDataImported += (_, result) =>
+        {
+            _haulListControl.ReloadData();
+            _invoiceControl.RefreshSuggestions();
+            _invoiceControl.ReloadData();
+            _invoiceHistoryControl.ReloadData();
+            _expenseControl.RefreshSuggestions();
+            _expenseControl.ReloadData();
+            _ledgerControl.RefreshSuggestions();
+            _ledgerControl.ReloadData();
+            _newHaulControl.RefreshSuggestions();
+            if (result.LatestDate.HasValue)
+            {
+                _summaryControl.ShowMonth(result.LatestDate.Value);
+            }
+            else
+            {
+                _summaryControl.ReloadData();
+            }
+            UpdateDatabaseStatus();
+        };
         _expenseControl.ExpensesChanged += (_, _) =>
         {
             _ledgerControl.ReloadData();

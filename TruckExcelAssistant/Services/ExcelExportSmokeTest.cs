@@ -114,6 +114,81 @@ internal static class ExcelExportSmokeTest
         {
             throw new InvalidOperationException("Ringkasan bulanan tidak menghitung data dengan benar.");
         }
+        VerifyLegacyImport(database, directory);
+    }
+
+    private static void VerifyLegacyImport(DatabaseService database, string directory)
+    {
+        var date = new DateTime(2025, 8, 1);
+        var ledgerPath = Path.Combine(directory, "PEMBUKUAN TEST.xlsx");
+        using (var workbook = new XLWorkbook())
+        {
+            var sheet = workbook.Worksheets.Add("N-LEGACY-01");
+            sheet.Cell("A1").Value = "N-LEGACY-01";
+            sheet.Cell("A2").Value = "TGL";
+            sheet.Cell("B2").Value = "PEMASUKAN";
+            sheet.Cell("H2").Value = "PENGELUARAN";
+            sheet.Cell("B3").Value = "DARI";
+            sheet.Cell("C3").Value = "KE";
+            sheet.Cell("D3").Value = "BARANG";
+            sheet.Cell("E3").Value = "BERAT (KG)";
+            sheet.Cell("F3").Value = "ONGKOS";
+            sheet.Cell("H3").Value = "KETERANGAN";
+            sheet.Cell("I3").Value = "UANG JALAN SOPIR";
+            sheet.Cell("J3").Value = "BIAYA";
+            sheet.Cell("A5").Value = date;
+            sheet.Cell("B5").Value = "Lumajang";
+            sheet.Cell("C5").Value = "Semarang";
+            sheet.Cell("D5").Value = "Jagung";
+            sheet.Cell("E5").Value = 45_000;
+            sheet.Cell("F5").Value = 300;
+            sheet.Cell("I5").Value = 2_000_000;
+            sheet.Cell("A6").Value = date;
+            sheet.Cell("H6").Value = "Service radiator";
+            sheet.Cell("J6").Value = 500_000;
+            workbook.SaveAs(ledgerPath);
+        }
+
+        var invoicePath = Path.Combine(directory, "INVOICE TEST.xlsx");
+        using (var workbook = new XLWorkbook())
+        {
+            var sheet = workbook.Worksheets.Add("INV 001");
+            sheet.Cell("A1").Value = "Kepada Yth. PT CUSTOMER LEGACY";
+            sheet.Cell("A2").Value = "NO.";
+            sheet.Cell("B2").Value = "TANGGAL";
+            sheet.Cell("C2").Value = "JENIS MUATAN";
+            sheet.Cell("D2").Value = "NOPOL";
+            sheet.Cell("E2").Value = "BERAT";
+            sheet.Cell("F2").Value = "BERAT";
+            sheet.Cell("G2").Value = "ONGKOS";
+            sheet.Cell("A4").Value = 1;
+            sheet.Cell("B4").Value = date;
+            sheet.Cell("C4").Value = "Jagung";
+            sheet.Cell("D4").Value = "N-LEGACY-01";
+            sheet.Cell("E4").Value = 46_000;
+            sheet.Cell("F4").Value = 45_000;
+            sheet.Cell("G4").Value = 300;
+            workbook.SaveAs(invoicePath);
+        }
+
+        var importer = new LegacyWorkbookImporter(database);
+        var result = importer.Import([invoicePath, ledgerPath]);
+        var imported = database.GetHauls("N-LEGACY-01").Single();
+        if (result.AddedHauls != 1
+            || result.UpdatedHauls != 1
+            || result.AddedExpenses != 1
+            || imported.Draft.Customer != "PT CUSTOMER LEGACY"
+            || imported.Draft.Origin != "Lumajang"
+            || imported.Draft.DriverRoadMoney != 2_000_000
+            || imported.Draft.LoadedWeightKg != 46_000)
+        {
+            throw new InvalidOperationException("Impor dan penggabungan Excel lama tidak sesuai.");
+        }
+        var repeated = new LegacyWorkbookImporter(database).Import([ledgerPath, invoicePath]);
+        if (repeated.SkippedRows != 3 || database.GetHauls("N-LEGACY-01").Count != 1)
+        {
+            throw new InvalidOperationException("Impor Excel lama membuat baris ganda.");
+        }
     }
 
     private static IReadOnlyList<HaulRecord> SampleRecords()
