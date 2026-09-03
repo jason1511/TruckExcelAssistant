@@ -75,6 +75,11 @@ public sealed class DatabaseService
 
             CREATE INDEX IF NOT EXISTS ix_invoices_date ON invoices(invoice_date DESC);
             CREATE INDEX IF NOT EXISTS ix_invoices_customer ON invoices(customer COLLATE NOCASE);
+
+            CREATE TABLE IF NOT EXISTS app_settings (
+                setting_key TEXT PRIMARY KEY,
+                setting_value TEXT NOT NULL
+            );
             """;
         command.ExecuteNonQuery();
 
@@ -86,7 +91,7 @@ public sealed class DatabaseService
         }
 
         using var version = connection.CreateCommand();
-        version.CommandText = "PRAGMA user_version = 3;";
+        version.CommandText = "PRAGMA user_version = 4;";
         version.ExecuteNonQuery();
     }
 
@@ -255,7 +260,8 @@ public sealed class DatabaseService
 
     public string GetNextInvoiceNumber(DateTime invoiceDate)
     {
-        var prefix = $"TJ-{invoiceDate:yyyyMMdd}-";
+        var settings = GetSettings();
+        var prefix = $"{settings.InvoicePrefix}-{invoiceDate:yyyyMMdd}-";
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
         command.CommandText = """
@@ -266,7 +272,78 @@ public sealed class DatabaseService
         command.Parameters.AddWithValue("$prefix", prefix);
         command.Parameters.AddWithValue("$pattern", $"{prefix}%");
         var sequence = Convert.ToInt32(command.ExecuteScalar(), CultureInfo.InvariantCulture);
-        return $"{prefix}{sequence:000}";
+        return $"{prefix}{sequence.ToString($"D{settings.InvoiceSequenceDigits}", CultureInfo.InvariantCulture)}";
+    }
+
+    public AppSettings GetSettings()
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT setting_key, setting_value FROM app_settings;";
+        var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            values[reader.GetString(0)] = reader.GetString(1);
+        }
+
+        var defaults = AppSettings.Default;
+        var layout = values.TryGetValue("default_invoice_layout", out var layoutValue)
+                     && Enum.TryParse<OutputLayout>(layoutValue, out var parsedLayout)
+                     && parsedLayout is OutputLayout.CompactInvoice or OutputLayout.CompleteInvoice
+            ? parsedLayout
+            : defaults.DefaultInvoiceLayout;
+        var digits = values.TryGetValue("invoice_sequence_digits", out var digitsValue)
+                     && int.TryParse(digitsValue, CultureInfo.InvariantCulture, out var parsedDigits)
+            ? Math.Clamp(parsedDigits, 3, 6)
+            : defaults.InvoiceSequenceDigits;
+
+        return new AppSettings(
+            GetSetting(values, "company_name", defaults.CompanyName),
+            GetSetting(values, "company_address", defaults.CompanyAddress),
+            GetSetting(values, "city", defaults.City),
+            GetSetting(values, "bank_name", defaults.BankName),
+            GetSetting(values, "bank_account_number", defaults.BankAccountNumber),
+            GetSetting(values, "bank_account_holder", defaults.BankAccountHolder),
+            GetSetting(values, "signer_name", defaults.SignerName),
+            NormalizeInvoicePrefix(GetSetting(values, "invoice_prefix", defaults.InvoicePrefix)),
+            digits,
+            layout,
+            GetSetting(values, "default_export_directory", defaults.DefaultExportDirectory));
+    }
+
+    public void SaveSettings(AppSettings settings)
+    {
+        using var connection = OpenConnection();
+        using var transaction = connection.BeginTransaction();
+        var values = new Dictionary<string, string>
+        {
+            ["company_name"] = settings.CompanyName.Trim(),
+            ["company_address"] = settings.CompanyAddress.Trim(),
+            ["city"] = settings.City.Trim(),
+            ["bank_name"] = settings.BankName.Trim(),
+            ["bank_account_number"] = settings.BankAccountNumber.Trim(),
+            ["bank_account_holder"] = settings.BankAccountHolder.Trim(),
+            ["signer_name"] = settings.SignerName.Trim(),
+            ["invoice_prefix"] = NormalizeInvoicePrefix(settings.InvoicePrefix),
+            ["invoice_sequence_digits"] = Math.Clamp(settings.InvoiceSequenceDigits, 3, 6).ToString(CultureInfo.InvariantCulture),
+            ["default_invoice_layout"] = settings.DefaultInvoiceLayout.ToString(),
+            ["default_export_directory"] = settings.DefaultExportDirectory.Trim()
+        };
+        foreach (var pair in values)
+        {
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = """
+                INSERT INTO app_settings (setting_key, setting_value)
+                VALUES ($key, $value)
+                ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value;
+                """;
+            command.Parameters.AddWithValue("$key", pair.Key);
+            command.Parameters.AddWithValue("$value", pair.Value);
+            command.ExecuteNonQuery();
+        }
+        transaction.Commit();
     }
 
     public void RecordGeneratedInvoice(
@@ -577,4 +654,19 @@ public sealed class DatabaseService
 
     private static decimal ToDecimal(SqliteDataReader reader, int ordinal) =>
         (decimal)reader.GetDouble(ordinal);
+
+    private static string GetSetting(
+        IReadOnlyDictionary<string, string> settings,
+        string key,
+        string fallback) => settings.TryGetValue(key, out var value) ? value : fallback;
+
+    private static string NormalizeInvoicePrefix(string value)
+    {
+        var normalized = new string(value
+            .Trim()
+            .ToUpperInvariant()
+            .Where(char.IsLetterOrDigit)
+            .ToArray());
+        return string.IsNullOrWhiteSpace(normalized) ? "TJ" : normalized;
+    }
 }

@@ -291,6 +291,10 @@ public sealed class InvoiceHistoryControl : UserControl
             return;
         }
         var previousFolder = Path.GetDirectoryName(invoice.FilePath);
+        var settings = _database.GetSettings();
+        var fallbackFolder = Directory.Exists(settings.DefaultExportDirectory)
+            ? settings.DefaultExportDirectory
+            : _exporter.ExportDirectory;
         using var dialog = new SaveFileDialog
         {
             Title = "Buat ulang invoice Excel",
@@ -300,7 +304,7 @@ public sealed class InvoiceHistoryControl : UserControl
             OverwritePrompt = true,
             InitialDirectory = !string.IsNullOrWhiteSpace(previousFolder) && Directory.Exists(previousFolder)
                 ? previousFolder
-                : _exporter.ExportDirectory,
+                : fallbackFolder,
             FileName = string.IsNullOrWhiteSpace(Path.GetFileName(invoice.FilePath))
                 ? $"Invoice-{invoice.InvoiceNumber}.xlsx"
                 : Path.GetFileName(invoice.FilePath)
@@ -313,11 +317,11 @@ public sealed class InvoiceHistoryControl : UserControl
         {
             if (invoice.Layout == OutputLayout.CompactInvoice)
             {
-                _exporter.ExportCompactInvoice(hauls, invoice.Customer, invoice.InvoiceNumber, invoice.InvoiceDate, dialog.FileName);
+                _exporter.ExportCompactInvoice(hauls, invoice.Customer, invoice.InvoiceNumber, invoice.InvoiceDate, dialog.FileName, settings);
             }
             else
             {
-                _exporter.ExportCompleteInvoice(hauls, invoice.Customer, invoice.InvoiceNumber, invoice.InvoiceDate, dialog.FileName);
+                _exporter.ExportCompleteInvoice(hauls, invoice.Customer, invoice.InvoiceNumber, invoice.InvoiceDate, dialog.FileName, settings);
             }
             _database.UpdateInvoiceFilePath(invoice.Id, dialog.FileName);
             ReloadData();
