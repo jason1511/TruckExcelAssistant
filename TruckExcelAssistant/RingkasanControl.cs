@@ -85,6 +85,16 @@ public sealed class RingkasanControl : UserControl
         _invoiceCount.Text = summary.RecentInvoices.Count == 1 ? "1 invoice" : $"{summary.RecentInvoices.Count} invoice terbaru";
     }
 
+    public void ShowMonth(DateTime date)
+    {
+        if (_month.Value.Year == date.Year && _month.Value.Month == date.Month)
+        {
+            ReloadData();
+            return;
+        }
+        _month.Value = new DateTime(date.Year, date.Month, 1);
+    }
+
     private void BuildLayout()
     {
         var root = new TableLayoutPanel

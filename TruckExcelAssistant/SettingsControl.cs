@@ -20,6 +20,8 @@ public sealed class SettingsControl : UserControl
     private readonly TextBox _exportDirectory = new();
     private readonly Label _numberPreview = new();
     private readonly Label _saveStatus = new();
+    private readonly Button _importButton = AppTheme.CreateSecondaryButton("Impor file Excel");
+    private readonly Label _importStatus = new();
 
     public SettingsControl(DatabaseService database)
     {
@@ -37,6 +39,8 @@ public sealed class SettingsControl : UserControl
 
     public event EventHandler? SettingsSaved;
 
+    public event EventHandler<LegacyImportResult>? LegacyDataImported;
+
     public void LoadSettings()
     {
         var settings = _database.GetSettings();
@@ -52,6 +56,7 @@ public sealed class SettingsControl : UserControl
         _defaultLayout.SelectedIndex = settings.DefaultInvoiceLayout == OutputLayout.CompactInvoice ? 0 : 1;
         _exportDirectory.Text = settings.DefaultExportDirectory;
         _saveStatus.Text = string.Empty;
+        UpdateImportStatus();
         UpdateNumberPreview();
     }
 
@@ -104,7 +109,7 @@ public sealed class SettingsControl : UserControl
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 3,
+            RowCount = 4,
             Margin = Padding.Empty,
             Padding = Padding.Empty
         };
@@ -151,6 +156,7 @@ public sealed class SettingsControl : UserControl
         sections.Controls.Add(BuildCompanySection(), 0, 0);
         sections.Controls.Add(BuildPaymentSection(), 0, 1);
         sections.Controls.Add(BuildInvoiceSection(), 0, 2);
+        sections.Controls.Add(BuildImportSection(), 0, 3);
         scroll.Controls.Add(sections);
 
         var footer = new TableLayoutPanel
@@ -244,6 +250,41 @@ public sealed class SettingsControl : UserControl
         return CreateSection("Invoice dan penyimpanan", grid);
     }
 
+    private Control BuildImportSection()
+    {
+        var panel = new TableLayoutPanel
+        {
+            Dock = DockStyle.Top,
+            Height = 60,
+            ColumnCount = 3,
+            RowCount = 1,
+            Margin = Padding.Empty,
+            Padding = Padding.Empty
+        };
+        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 210F));
+        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150F));
+        panel.Controls.Add(new Label
+        {
+            Text = "Pilih PEMBUKUAN TRUK dan file invoice lama. Baris yang sama akan digabung dan tidak diimpor dua kali.",
+            Dock = DockStyle.Fill,
+            ForeColor = AppTheme.TextSecondary,
+            TextAlign = ContentAlignment.MiddleLeft,
+            AutoEllipsis = true,
+            Margin = Padding.Empty
+        }, 0, 0);
+        _importStatus.Dock = DockStyle.Fill;
+        _importStatus.ForeColor = AppTheme.TextSecondary;
+        _importStatus.TextAlign = ContentAlignment.MiddleRight;
+        _importStatus.Margin = new Padding(0, 0, 12, 0);
+        _importButton.Dock = DockStyle.Fill;
+        _importButton.Margin = Padding.Empty;
+        _importButton.Click += (_, _) => ImportLegacyWorkbooks();
+        panel.Controls.Add(_importStatus, 1, 0);
+        panel.Controls.Add(_importButton, 2, 0);
+        return CreateSection("Impor Excel lama", panel);
+    }
+
     private void WireEvents()
     {
         _invoicePrefix.TextChanged += (_, _) => UpdateNumberPreview();
@@ -300,6 +341,58 @@ public sealed class SettingsControl : UserControl
         _saveStatus.Text = $"Tersimpan {DateTime.Now:HH:mm}";
         SettingsSaved?.Invoke(this, EventArgs.Empty);
         UpdateNumberPreview();
+    }
+
+    private void ImportLegacyWorkbooks()
+    {
+        using var dialog = new OpenFileDialog
+        {
+            Title = "Pilih file pembukuan dan invoice lama",
+            Filter = "Excel Workbook (*.xlsx)|*.xlsx",
+            Multiselect = true,
+            CheckFileExists = true
+        };
+        if (dialog.ShowDialog(this) != DialogResult.OK)
+        {
+            return;
+        }
+        var answer = MessageBox.Show(
+            $"Impor {dialog.FileNames.Length} file Excel ke database lokal?\n\nBaris kosong akan dilewati. Baris Pembukuan dan Invoice yang cocok akan digabung agar tidak ganda.",
+            "Impor Excel lama",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Question);
+        if (answer != DialogResult.Yes)
+        {
+            return;
+        }
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            _importButton.Enabled = false;
+            var result = new LegacyWorkbookImporter(_database).Import(dialog.FileNames);
+            UpdateImportStatus();
+            LegacyDataImported?.Invoke(this, result);
+            MessageBox.Show(
+                $"Impor selesai.\n\nPerjalanan baru: {result.AddedHauls}\nPerjalanan diperbarui: {result.UpdatedHauls}\nPengeluaran baru: {result.AddedExpenses}\nBaris yang sudah pernah diimpor: {result.SkippedRows}",
+                "Impor selesai",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+        }
+        catch (Exception exception)
+        {
+            MessageBox.Show(exception.Message, "Gagal mengimpor Excel", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+            _importButton.Enabled = true;
+        }
+    }
+
+    private void UpdateImportStatus()
+    {
+        var count = _database.CountLegacyImportRows();
+        _importStatus.Text = count == 0 ? "Belum ada impor" : $"{count} baris tercatat";
     }
 
     private void UpdateNumberPreview()
