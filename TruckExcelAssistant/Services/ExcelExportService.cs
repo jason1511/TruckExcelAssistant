@@ -84,37 +84,53 @@ public sealed class ExcelExportService
         Finish(workbook, outputPath);
     }
 
-    public void ExportTruckLedger(IReadOnlyList<HaulRecord> records, string outputPath)
+    public void ExportTruckLedger(
+        IReadOnlyList<HaulRecord> records,
+        string outputPath,
+        IReadOnlyList<ExpenseRecord>? expenses = null)
     {
-        var groups = records
-            .Where(record => !string.IsNullOrWhiteSpace(record.Draft.LicencePlate))
-            .GroupBy(record => record.Draft.LicencePlate.Trim(), StringComparer.OrdinalIgnoreCase)
-            .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
+        expenses ??= [];
+        var plates = records
+            .Select(record => record.Draft.LicencePlate.Trim())
+            .Concat(expenses.Select(expense => expense.LicencePlate.Trim()))
+            .Where(plate => !string.IsNullOrWhiteSpace(plate))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(plate => plate, StringComparer.OrdinalIgnoreCase)
             .ToList();
-        if (groups.Count == 0)
+        if (plates.Count == 0)
         {
-            throw new InvalidOperationException("Pilih setidaknya satu perjalanan yang memiliki nomor polisi.");
+            throw new InvalidOperationException("Tidak ada perjalanan atau pengeluaran bernomor polisi untuk diekspor.");
         }
 
         using var workbook = CreateLedgerWorkbook();
         var source = workbook.Worksheet("Truk");
 
         var sheets = new List<IXLWorksheet> { source };
-        for (var index = 1; index < groups.Count; index++)
+        for (var index = 1; index < plates.Count; index++)
         {
-            sheets.Add(source.CopyTo(SafeSheetName(groups[index].Key, workbook)));
+            sheets.Add(source.CopyTo(SafeSheetName(plates[index], workbook)));
         }
 
-        for (var index = 0; index < groups.Count; index++)
+        for (var index = 0; index < plates.Count; index++)
         {
-            var rows = groups[index].OrderBy(item => item.Draft.Date).ThenBy(item => item.Id).ToList();
-            ValidateCount(rows, 100, $"Pembukuan {groups[index].Key}");
+            var plate = plates[index];
+            var entries = records
+                .Where(record => record.Draft.LicencePlate.Equals(plate, StringComparison.OrdinalIgnoreCase))
+                .Select(record => new LedgerEntry(record.Draft.Date, 0, record.Id, record, null))
+                .Concat(expenses
+                    .Where(expense => expense.LicencePlate.Equals(plate, StringComparison.OrdinalIgnoreCase))
+                    .Select(expense => new LedgerEntry(expense.Date, 1, expense.Id, null, expense)))
+                .OrderBy(entry => entry.Date)
+                .ThenBy(entry => entry.KindOrder)
+                .ThenBy(entry => entry.Id)
+                .ToList();
+            ValidateCount(entries, 100, $"Pembukuan {plate}");
             var sheet = sheets[index];
             if (index == 0)
             {
-                sheet.Name = SafeSheetName(groups[index].Key, workbook, sheet);
+                sheet.Name = SafeSheetName(plate, workbook, sheet);
             }
-            FillLedgerSheet(sheet, groups[index].Key, rows);
+            FillLedgerSheet(sheet, plate, entries);
         }
 
         Finish(workbook, outputPath);
@@ -359,7 +375,7 @@ public sealed class ExcelExportService
         range.Style.Border.InsideBorderColor = XLColor.FromHtml("#D9D9D9");
     }
 
-    private static void FillLedgerSheet(IXLWorksheet sheet, string plate, IReadOnlyList<HaulRecord> records)
+    private static void FillLedgerSheet(IXLWorksheet sheet, string plate, IReadOnlyList<LedgerEntry> entries)
     {
         for (var block = 0; block < LedgerStartRows.Length; block++)
         {
@@ -371,21 +387,40 @@ public sealed class ExcelExportService
             sheet.Cell(totalRow, 10).FormulaA1 = $"=SUM(J{LedgerStartRows[block]}:J{totalRow - 1})";
         }
 
-        for (var index = 0; index < records.Count; index++)
+        for (var index = 0; index < entries.Count; index++)
         {
             var block = index / 25;
             var row = LedgerStartRows[block] + index % 25;
-            var haul = records[index].Draft;
-            sheet.Cell(row, 1).Value = haul.Date;
-            sheet.Cell(row, 2).Value = haul.Origin;
-            sheet.Cell(row, 3).Value = haul.Destination;
-            sheet.Cell(row, 4).Value = haul.Cargo;
-            SetNumber(sheet.Cell(row, 5), haul.ReceivedWeightKg);
-            SetNumber(sheet.Cell(row, 6), haul.RatePerKg);
-            sheet.Cell(row, 7).FormulaA1 = $"=E{row}*F{row}";
-            sheet.Cell(row, 8).Value = haul.Notes;
-            SetNumber(sheet.Cell(row, 9), haul.DriverRoadMoney);
-            SetNumber(sheet.Cell(row, 10), haul.OtherExpense);
+            var entry = entries[index];
+            sheet.Cell(row, 1).Value = entry.Date;
+            if (entry.Haul is not null)
+            {
+                var haul = entry.Haul.Draft;
+                sheet.Cell(row, 2).Value = haul.Origin;
+                sheet.Cell(row, 3).Value = haul.Destination;
+                sheet.Cell(row, 4).Value = haul.Cargo;
+                SetNumber(sheet.Cell(row, 5), haul.ReceivedWeightKg);
+                SetNumber(sheet.Cell(row, 6), haul.RatePerKg);
+                sheet.Cell(row, 7).FormulaA1 = $"=E{row}*F{row}";
+                sheet.Cell(row, 8).Value = haul.Notes;
+                SetNumber(sheet.Cell(row, 9), haul.DriverRoadMoney);
+                SetNumber(sheet.Cell(row, 10), haul.OtherExpense);
+            }
+            else if (entry.Expense is not null)
+            {
+                var expense = entry.Expense;
+                sheet.Cell(row, 8).Value = string.IsNullOrWhiteSpace(expense.Description)
+                    ? expense.Category
+                    : $"{expense.Category}: {expense.Description}";
+                if (expense.Category.Equals("Uang jalan tambahan", StringComparison.OrdinalIgnoreCase))
+                {
+                    SetNumber(sheet.Cell(row, 9), expense.Amount);
+                }
+                else
+                {
+                    SetNumber(sheet.Cell(row, 10), expense.Amount);
+                }
+            }
         }
 
         sheet.Cell("G121").FormulaA1 = "=SUM(G30,G60,G90,G120)";
@@ -442,4 +477,11 @@ public sealed class ExcelExportService
         }
         workbook.SaveAs(outputPath);
     }
+
+    private sealed record LedgerEntry(
+        DateTime Date,
+        int KindOrder,
+        long Id,
+        HaulRecord? Haul,
+        ExpenseRecord? Expense);
 }

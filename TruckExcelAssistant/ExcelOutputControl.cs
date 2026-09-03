@@ -26,6 +26,7 @@ public sealed class ExcelOutputControl : UserControl
     private readonly DataGridView _grid = new();
     private readonly Button _exportButton = AppTheme.CreatePrimaryButton("Buat file Excel");
     private IReadOnlyList<HaulRecord> _records = [];
+    private IReadOnlyList<ExpenseRecord> _expenses = [];
 
     public ExcelOutputControl(DatabaseService database, ExcelExportService exporter, ExcelOutputKind kind)
     {
@@ -59,6 +60,9 @@ public sealed class ExcelOutputControl : UserControl
                 ? _records.Where(item => item.Draft.Customer.Equals(subject, StringComparison.OrdinalIgnoreCase)).ToList()
                 : _records.Where(item => item.Draft.LicencePlate.Equals(subject, StringComparison.OrdinalIgnoreCase)).ToList();
         }
+        _expenses = _kind == ExcelOutputKind.TruckLedger
+            ? _database.GetExpensesForExport(_from.Value.Date, _to.Value.Date, subject)
+            : [];
 
         _grid.Rows.Clear();
         foreach (var record in _records)
@@ -75,7 +79,9 @@ public sealed class ExcelOutputControl : UserControl
                 IndonesianNumber.Rupiah(draft.GrossAmount));
             _grid.Rows[row].Tag = record;
         }
-        _resultCount.Text = $"{_records.Count} data ditemukan";
+        _resultCount.Text = _kind == ExcelOutputKind.TruckLedger
+            ? $"{_records.Count} perjalanan • {_expenses.Count} pengeluaran"
+            : $"{_records.Count} data ditemukan";
         UpdateSelectionInfo();
     }
 
@@ -376,7 +382,7 @@ public sealed class ExcelOutputControl : UserControl
         {
             if (_kind == ExcelOutputKind.TruckLedger)
             {
-                _exporter.ExportTruckLedger(selected, dialog.FileName);
+                _exporter.ExportTruckLedger(selected, dialog.FileName, _expenses);
             }
             else if (_layout.SelectedIndex == 0)
             {
@@ -462,10 +468,10 @@ public sealed class ExcelOutputControl : UserControl
         }
         else
         {
-            _selectionInfo.Text = $"Dipilih {selected} perjalanan • maks. 100 per nopol";
+            _selectionInfo.Text = $"Dipilih {selected} perjalanan • {_expenses.Count} pengeluaran otomatis • maks. 100 baris per nopol";
             _selectionInfo.ForeColor = AppTheme.TextSecondary;
         }
-        _exportButton.Enabled = selected > 0;
+        _exportButton.Enabled = selected > 0 || (_kind == ExcelOutputKind.TruckLedger && _expenses.Count > 0);
     }
 
     private void EnsureDateOrder()
