@@ -8,6 +8,7 @@ public sealed class SettingsControl : UserControl
     private readonly DatabaseService _database;
     private readonly TextBox _companyName = new();
     private readonly TextBox _companyAddress = new();
+    private readonly Panel _companyAddressFrame = new();
     private readonly TextBox _city = new();
     private readonly TextBox _bankName = new();
     private readonly TextBox _bankAccount = new();
@@ -67,6 +68,25 @@ public sealed class SettingsControl : UserControl
         _companyAddress.Multiline = true;
         _companyAddress.ScrollBars = ScrollBars.Vertical;
         _companyAddress.PlaceholderText = "Alamat perusahaan yang dicetak pada invoice";
+        _companyAddress.BorderStyle = BorderStyle.None;
+        _companyAddress.BackColor = AppTheme.Surface;
+        _companyAddress.Margin = Padding.Empty;
+        var addressInner = new Panel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = AppTheme.Surface,
+            Padding = new Padding(6, 4, 3, 3),
+            Margin = Padding.Empty
+        };
+        _companyAddress.Dock = DockStyle.Fill;
+        addressInner.Controls.Add(_companyAddress);
+        _companyAddressFrame.Dock = DockStyle.Fill;
+        _companyAddressFrame.BackColor = AppTheme.InputBorder;
+        _companyAddressFrame.Padding = new Padding(1);
+        _companyAddressFrame.Margin = Padding.Empty;
+        _companyAddressFrame.Controls.Add(addressInner);
+        _companyAddress.Enter += (_, _) => _companyAddressFrame.BackColor = AppTheme.Accent;
+        _companyAddress.Leave += (_, _) => _companyAddressFrame.BackColor = AppTheme.InputBorder;
         _invoicePrefix.CharacterCasing = CharacterCasing.Upper;
         _invoicePrefix.MaxLength = 8;
         _sequenceDigits.Minimum = 3;
@@ -165,7 +185,7 @@ public sealed class SettingsControl : UserControl
         var grid = CreateSectionGrid(2, 2, 164);
         AddField(grid, 0, 0, "Nama perusahaan", _companyName);
         AddField(grid, 1, 0, "Kota penerbit invoice", _city);
-        AddField(grid, 0, 1, "Alamat perusahaan", _companyAddress, 2);
+        AddField(grid, 0, 1, "Alamat perusahaan", _companyAddressFrame, 2);
         return CreateSection("Identitas perusahaan", grid);
     }
 
