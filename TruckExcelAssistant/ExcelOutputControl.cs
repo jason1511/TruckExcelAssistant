@@ -46,7 +46,10 @@ public sealed class ExcelOutputControl : UserControl
 
     public void ReloadData()
     {
-        _records = _database.GetSavedHaulsForExport(_from.Value.Date, _to.Value.Date);
+        _records = _database.GetSavedHaulsForExport(
+            _from.Value.Date,
+            _to.Value.Date,
+            _kind == ExcelOutputKind.Invoice);
         var subject = _subject.Text.Trim();
         if (!string.IsNullOrWhiteSpace(subject))
         {
@@ -106,7 +109,10 @@ public sealed class ExcelOutputControl : UserControl
         _layout.DropDownStyle = ComboBoxStyle.DropDownList;
         _layout.Items.AddRange(["Invoice ringkas (maks. 19 baris)", "Invoice lengkap (maks. 13 baris)"]);
         _layout.SelectedIndex = 1;
-        _invoiceNumber.PlaceholderText = "Contoh: 00006";
+        _invoiceNumber.ReadOnly = true;
+        _invoiceNumber.BackColor = Color.FromArgb(242, 245, 248);
+        _invoiceNumber.TabStop = false;
+        UpdateAutomaticInvoiceNumber();
 
         RefreshSuggestions();
     }
@@ -210,7 +216,7 @@ public sealed class ExcelOutputControl : UserControl
         if (_kind == ExcelOutputKind.Invoice)
         {
             AddField(grid, 0, 1, "Layout invoice", _layout, 2);
-            AddField(grid, 2, 1, "Nomor invoice", _invoiceNumber);
+            AddField(grid, 2, 1, "Nomor invoice (otomatis)", _invoiceNumber);
             AddField(grid, 3, 1, "Tanggal invoice", _issueDate);
         }
         panel.Controls.Add(grid);
@@ -302,6 +308,7 @@ public sealed class ExcelOutputControl : UserControl
         _to.ValueChanged += (_, _) => EnsureDateOrder();
         _subject.SelectionChangeCommitted += (_, _) => ReloadData();
         _layout.SelectedIndexChanged += (_, _) => UpdateSelectionInfo();
+        _issueDate.ValueChanged += (_, _) => UpdateAutomaticInvoiceNumber();
         _grid.CurrentCellDirtyStateChanged += (_, _) =>
         {
             if (_grid.IsCurrentCellDirty)
@@ -332,13 +339,6 @@ public sealed class ExcelOutputControl : UserControl
             _subject.Focus();
             return;
         }
-        if (_kind == ExcelOutputKind.Invoice && string.IsNullOrWhiteSpace(_invoiceNumber.Text))
-        {
-            MessageBox.Show("Isi nomor invoice terlebih dahulu.", "Nomor invoice diperlukan", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            _invoiceNumber.Focus();
-            return;
-        }
-
         var suggested = BuildSuggestedFileName();
         using var dialog = new SaveFileDialog
         {
@@ -364,10 +364,12 @@ public sealed class ExcelOutputControl : UserControl
             else if (_layout.SelectedIndex == 0)
             {
                 _exporter.ExportCompactInvoice(selected, _subject.Text, _invoiceNumber.Text, _issueDate.Value, dialog.FileName);
+                RecordInvoice(selected, OutputLayout.CompactInvoice, dialog.FileName);
             }
             else
             {
                 _exporter.ExportCompleteInvoice(selected, _subject.Text, _invoiceNumber.Text, _issueDate.Value, dialog.FileName);
+                RecordInvoice(selected, OutputLayout.CompleteInvoice, dialog.FileName);
             }
 
             var result = MessageBox.Show(
@@ -378,6 +380,11 @@ public sealed class ExcelOutputControl : UserControl
             if (result == DialogResult.Yes)
             {
                 Process.Start(new ProcessStartInfo(dialog.FileName) { UseShellExecute = true });
+            }
+            if (_kind == ExcelOutputKind.Invoice)
+            {
+                UpdateAutomaticInvoiceNumber();
+                ReloadData();
             }
         }
         catch (Exception exception)
@@ -393,6 +400,29 @@ public sealed class ExcelOutputControl : UserControl
             .OrderBy(record => record.Draft.Date)
             .ThenBy(record => record.Id)
             .ToList();
+
+    private void RecordInvoice(IReadOnlyList<HaulRecord> selected, OutputLayout layout, string filePath)
+    {
+        var total = layout == OutputLayout.CompactInvoice
+            ? selected.Sum(item => item.Draft.GrossAmount - item.Draft.BonSangu)
+            : selected.Sum(item => item.Draft.GrossAmount + item.Draft.RejectionCost - item.Draft.ClaimAmount);
+        _database.RecordGeneratedInvoice(
+            _invoiceNumber.Text,
+            _issueDate.Value,
+            _subject.Text,
+            layout,
+            total,
+            filePath,
+            selected.Select(item => item.Id).ToList());
+    }
+
+    private void UpdateAutomaticInvoiceNumber()
+    {
+        if (_kind == ExcelOutputKind.Invoice)
+        {
+            _invoiceNumber.Text = _database.GetNextInvoiceNumber(_issueDate.Value.Date);
+        }
+    }
 
     private void SetAllChecked(bool value)
     {
