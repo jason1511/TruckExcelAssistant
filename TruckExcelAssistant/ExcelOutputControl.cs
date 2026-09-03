@@ -44,6 +44,8 @@ public sealed class ExcelOutputControl : UserControl
         WireEvents();
     }
 
+    public event EventHandler? InvoiceGenerated;
+
     public void ReloadData()
     {
         _records = _database.GetSavedHaulsForExport(
@@ -383,6 +385,7 @@ public sealed class ExcelOutputControl : UserControl
             }
             if (_kind == ExcelOutputKind.Invoice)
             {
+                InvoiceGenerated?.Invoke(this, EventArgs.Empty);
                 UpdateAutomaticInvoiceNumber();
                 ReloadData();
             }

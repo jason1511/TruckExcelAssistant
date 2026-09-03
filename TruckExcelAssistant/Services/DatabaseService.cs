@@ -8,9 +8,9 @@ public sealed class DatabaseService
 {
     private readonly string _connectionString;
 
-    public DatabaseService()
+    public DatabaseService(string? databasePath = null)
     {
-        DatabasePath = Path.Combine(AppContext.BaseDirectory, "truck_excel_assistant.db");
+        DatabasePath = databasePath ?? Path.Combine(AppContext.BaseDirectory, "truck_excel_assistant.db");
         _connectionString = new SqliteConnectionStringBuilder
         {
             DataSource = DatabasePath,
@@ -311,6 +311,106 @@ public sealed class DatabaseService
             link.ExecuteNonQuery();
         }
         transaction.Commit();
+    }
+
+    public IReadOnlyList<InvoiceRecord> GetInvoices(string? searchText = null, InvoiceStatus? status = null)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        var search = searchText?.Trim() ?? string.Empty;
+        command.CommandText = """
+            SELECT i.id, i.invoice_number, i.invoice_date, i.customer, i.layout,
+                   i.total_amount, i.file_path, i.status, i.created_at,
+                   COUNT(ih.haul_id) AS haul_count
+            FROM invoices i
+            LEFT JOIN invoice_hauls ih ON ih.invoice_id = i.id
+            WHERE ($search = ''
+                   OR i.invoice_number LIKE $pattern COLLATE NOCASE
+                   OR i.customer LIKE $pattern COLLATE NOCASE
+                   OR i.file_path LIKE $pattern COLLATE NOCASE)
+              AND ($status = '' OR i.status = $status)
+            GROUP BY i.id
+            ORDER BY i.invoice_date DESC, i.id DESC
+            LIMIT 500;
+            """;
+        command.Parameters.AddWithValue("$search", search);
+        command.Parameters.AddWithValue("$pattern", $"%{search}%");
+        command.Parameters.AddWithValue("$status", status?.ToString() ?? string.Empty);
+
+        var invoices = new List<InvoiceRecord>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            var layoutValue = reader.GetInt32(4);
+            var layout = Enum.IsDefined(typeof(OutputLayout), layoutValue)
+                ? (OutputLayout)layoutValue
+                : OutputLayout.CompleteInvoice;
+            var invoiceStatus = Enum.TryParse<InvoiceStatus>(reader.GetString(7), out var parsed)
+                ? parsed
+                : InvoiceStatus.Generated;
+            invoices.Add(new InvoiceRecord(
+                reader.GetInt64(0),
+                reader.GetString(1),
+                DateTime.ParseExact(reader.GetString(2), "yyyy-MM-dd", CultureInfo.InvariantCulture),
+                reader.GetString(3),
+                layout,
+                ToDecimal(reader, 5),
+                reader.GetString(6),
+                invoiceStatus,
+                DateTime.Parse(reader.GetString(8), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+                reader.GetInt32(9)));
+        }
+        return invoices;
+    }
+
+    public IReadOnlyList<HaulRecord> GetInvoiceHauls(long invoiceId)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT h.id, h.haul_date, h.licence_plate, h.cargo, h.customer, h.origin, h.destination,
+                   h.loaded_weight_kg, h.received_weight_kg, h.rate_per_kg, h.bon_sangu,
+                   h.rejection_cost, h.claim_amount, h.driver_road_money, h.other_expense,
+                   h.notes, h.preview_layout, h.status, h.created_at, h.updated_at, h.deleted_at
+            FROM hauls h
+            INNER JOIN invoice_hauls ih ON ih.haul_id = h.id
+            WHERE ih.invoice_id = $invoiceId
+            ORDER BY h.haul_date, h.id;
+            """;
+        command.Parameters.AddWithValue("$invoiceId", invoiceId);
+        var records = new List<HaulRecord>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            records.Add(ReadHaul(reader));
+        }
+        return records;
+    }
+
+    public void UpdateInvoiceStatus(long invoiceId, InvoiceStatus status)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "UPDATE invoices SET status = $status WHERE id = $id;";
+        command.Parameters.AddWithValue("$status", status.ToString());
+        command.Parameters.AddWithValue("$id", invoiceId);
+        if (command.ExecuteNonQuery() == 0)
+        {
+            throw new InvalidOperationException("Invoice tidak ditemukan.");
+        }
+    }
+
+    public void UpdateInvoiceFilePath(long invoiceId, string filePath)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "UPDATE invoices SET file_path = $path WHERE id = $id;";
+        command.Parameters.AddWithValue("$path", filePath);
+        command.Parameters.AddWithValue("$id", invoiceId);
+        if (command.ExecuteNonQuery() == 0)
+        {
+            throw new InvalidOperationException("Invoice tidak ditemukan.");
+        }
     }
 
     public void MoveToTrash(long id)

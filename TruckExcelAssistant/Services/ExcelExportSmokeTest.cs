@@ -24,10 +24,45 @@ internal static class ExcelExportSmokeTest
             Verify(compact, "Invoice", "I4");
             Verify(complete, "Invoice", "K19");
             Verify(ledger, "N-TEST-01", "A121");
+            VerifyInvoiceDatabase(directory, compact);
         }
         finally
         {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             Directory.Delete(directory, true);
+        }
+    }
+
+    private static void VerifyInvoiceDatabase(string directory, string invoicePath)
+    {
+        var database = new DatabaseService(Path.Combine(directory, "smoke-test.db"));
+        database.Initialize();
+        var date = new DateTime(2026, 9, 3);
+        if (database.GetNextInvoiceNumber(date) != "TJ-20260903-001")
+        {
+            throw new InvalidOperationException("Nomor invoice otomatis pertama tidak sesuai.");
+        }
+        database.RecordGeneratedInvoice(
+            "TJ-20260903-001",
+            date,
+            "PT CONTOH CUSTOMER",
+            OutputLayout.CompleteInvoice,
+            12_500_000,
+            invoicePath,
+            []);
+        if (database.GetNextInvoiceNumber(date) != "TJ-20260903-002")
+        {
+            throw new InvalidOperationException("Urutan nomor invoice otomatis tidak bertambah.");
+        }
+        var invoices = database.GetInvoices();
+        if (invoices.Count != 1 || invoices[0].Status != InvoiceStatus.Generated)
+        {
+            throw new InvalidOperationException("Riwayat invoice tidak tersimpan dengan benar.");
+        }
+        database.UpdateInvoiceStatus(invoices[0].Id, InvoiceStatus.Paid);
+        if (database.GetInvoices(status: InvoiceStatus.Paid).Count != 1)
+        {
+            throw new InvalidOperationException("Status lunas invoice tidak tersimpan.");
         }
     }
 

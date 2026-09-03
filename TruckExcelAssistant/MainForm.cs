@@ -13,6 +13,7 @@ public sealed class MainForm : Form
     private readonly HaulListControl _haulListControl;
     private readonly ExcelOutputControl _invoiceControl;
     private readonly ExcelOutputControl _ledgerControl;
+    private readonly InvoiceHistoryControl _invoiceHistoryControl;
 
     public MainForm(DatabaseService database)
     {
@@ -22,6 +23,9 @@ public sealed class MainForm : Form
         var excelExporter = new ExcelExportService();
         _invoiceControl = new ExcelOutputControl(database, excelExporter, ExcelOutputKind.Invoice);
         _ledgerControl = new ExcelOutputControl(database, excelExporter, ExcelOutputKind.TruckLedger);
+        _invoiceHistoryControl = new InvoiceHistoryControl(database, excelExporter);
+        _invoiceControl.InvoiceGenerated += (_, _) => _invoiceHistoryControl.ReloadData();
+        _invoiceHistoryControl.DataChanged += (_, _) => _invoiceControl.ReloadData();
         _newHaulControl.HaulStored += (_, _) =>
         {
             _haulListControl.ReloadData();
@@ -128,6 +132,7 @@ public sealed class MainForm : Form
         AddNavigationButton(navigation, "Input Angkutan");
         AddNavigationButton(navigation, "Data Angkutan");
         AddNavigationButton(navigation, "Buat Invoice");
+        AddNavigationButton(navigation, "Riwayat Invoice");
         AddNavigationButton(navigation, "Pembukuan Truk");
         AddNavigationButton(navigation, "Pengeluaran");
         AddNavigationButton(navigation, "Pengaturan");
@@ -239,6 +244,10 @@ public sealed class MainForm : Form
                 _invoiceControl.RefreshSuggestions();
                 _invoiceControl.ReloadData();
                 page = _invoiceControl;
+                break;
+            case "Riwayat Invoice":
+                _invoiceHistoryControl.ReloadData();
+                page = _invoiceHistoryControl;
                 break;
             case "Pembukuan Truk":
                 _ledgerControl.RefreshSuggestions();
