@@ -102,6 +102,18 @@ internal static class ExcelExportSmokeTest
         {
             throw new InvalidOperationException("Pengeluaran tidak berhasil dipulihkan.");
         }
+        database.AddHaul(SampleRecords()[0].Draft, HaulStatus.Saved);
+        var dashboard = database.GetDashboardSummary(date);
+        if (dashboard.HaulCount != 1
+            || dashboard.Revenue != 12_471_250
+            || dashboard.TotalExpenses != 5_000_000
+            || dashboard.Net != 7_471_250
+            || dashboard.OutstandingInvoiceCount != 0
+            || dashboard.Trucks.Count != 1
+            || dashboard.RecentInvoices.Count != 1)
+        {
+            throw new InvalidOperationException("Ringkasan bulanan tidak menghitung data dengan benar.");
+        }
     }
 
     private static IReadOnlyList<HaulRecord> SampleRecords()

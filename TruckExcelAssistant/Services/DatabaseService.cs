@@ -708,6 +708,118 @@ public sealed class DatabaseService
         return values;
     }
 
+    public DashboardSummary GetDashboardSummary(DateTime month)
+    {
+        var start = new DateTime(month.Year, month.Month, 1);
+        var end = start.AddMonths(1);
+        var haulRows = new Dictionary<string, (string Plate, int Count, decimal Revenue, decimal Expenses)>(StringComparer.OrdinalIgnoreCase);
+        var expenseRows = new Dictionary<string, (string Plate, int Count, decimal Amount)>(StringComparer.OrdinalIgnoreCase);
+
+        using (var connection = OpenConnection())
+        {
+            using (var hauls = connection.CreateCommand())
+            {
+                hauls.CommandText = """
+                    SELECT licence_plate,
+                           COUNT(*),
+                           COALESCE(SUM(received_weight_kg * rate_per_kg), 0),
+                           COALESCE(SUM(driver_road_money + other_expense), 0)
+                    FROM hauls
+                    WHERE deleted_at IS NULL
+                      AND status = 'Saved'
+                      AND haul_date >= $start
+                      AND haul_date < $end
+                    GROUP BY licence_plate COLLATE NOCASE;
+                    """;
+                hauls.Parameters.AddWithValue("$start", start.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+                hauls.Parameters.AddWithValue("$end", end.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+                using var reader = hauls.ExecuteReader();
+                while (reader.Read())
+                {
+                    var plate = NormalizeDashboardPlate(reader.GetString(0));
+                    haulRows[plate] = (
+                        plate,
+                        Convert.ToInt32(reader.GetInt64(1)),
+                        ToDecimal(reader, 2),
+                        ToDecimal(reader, 3));
+                }
+            }
+
+            using (var expenses = connection.CreateCommand())
+            {
+                expenses.CommandText = """
+                    SELECT licence_plate, COUNT(*), COALESCE(SUM(amount), 0)
+                    FROM expenses
+                    WHERE deleted_at IS NULL
+                      AND expense_date >= $start
+                      AND expense_date < $end
+                    GROUP BY licence_plate COLLATE NOCASE;
+                    """;
+                expenses.Parameters.AddWithValue("$start", start.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+                expenses.Parameters.AddWithValue("$end", end.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+                using var reader = expenses.ExecuteReader();
+                while (reader.Read())
+                {
+                    var plate = NormalizeDashboardPlate(reader.GetString(0));
+                    expenseRows[plate] = (
+                        plate,
+                        Convert.ToInt32(reader.GetInt64(1)),
+                        ToDecimal(reader, 2));
+                }
+            }
+        }
+
+        var plates = haulRows.Keys
+            .Union(expenseRows.Keys, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(value => value, StringComparer.OrdinalIgnoreCase);
+        var trucks = new List<TruckFinancialSummary>();
+        foreach (var plate in plates)
+        {
+            haulRows.TryGetValue(plate, out var haul);
+            expenseRows.TryGetValue(plate, out var expense);
+            var displayPlate = haul.Plate ?? expense.Plate ?? plate;
+            var totalExpenses = haul.Expenses + expense.Amount;
+            trucks.Add(new TruckFinancialSummary(
+                displayPlate,
+                haul.Count,
+                expense.Count,
+                haul.Revenue,
+                totalExpenses,
+                haul.Revenue - totalExpenses));
+        }
+
+        int outstandingCount;
+        decimal outstandingAmount;
+        using (var connection = OpenConnection())
+        using (var outstanding = connection.CreateCommand())
+        {
+            outstanding.CommandText = """
+                SELECT COUNT(*), COALESCE(SUM(total_amount), 0)
+                FROM invoices
+                WHERE status = 'Generated';
+                """;
+            using var reader = outstanding.ExecuteReader();
+            reader.Read();
+            outstandingCount = Convert.ToInt32(reader.GetInt64(0));
+            outstandingAmount = ToDecimal(reader, 1);
+        }
+
+        var revenue = trucks.Sum(row => row.Revenue);
+        var embeddedExpenses = haulRows.Values.Sum(row => row.Expenses);
+        var standaloneExpenses = expenseRows.Values.Sum(row => row.Amount);
+        return new DashboardSummary(
+            start,
+            trucks.Sum(row => row.HaulCount),
+            revenue,
+            embeddedExpenses,
+            standaloneExpenses,
+            revenue - embeddedExpenses - standaloneExpenses,
+            outstandingCount,
+            outstandingAmount,
+            trucks,
+            GetInvoices().Take(6).ToList());
+    }
+
     public int CountHauls()
     {
         using var connection = OpenConnection();
@@ -715,6 +827,9 @@ public sealed class DatabaseService
         command.CommandText = "SELECT COUNT(*) FROM hauls WHERE deleted_at IS NULL;";
         return Convert.ToInt32(command.ExecuteScalar(), CultureInfo.InvariantCulture);
     }
+
+    private static string NormalizeDashboardPlate(string plate) =>
+        string.IsNullOrWhiteSpace(plate) ? "Tanpa nopol" : plate.Trim();
 
     private SqliteConnection OpenConnection()
     {
