@@ -62,6 +62,20 @@ public sealed class MainForm : Form
             }
             UpdateDatabaseStatus();
         };
+        _settingsControl.DemoDataChanged += (_, _) =>
+        {
+            _haulListControl.ReloadData();
+            _invoiceControl.RefreshSuggestions();
+            _invoiceControl.ReloadData();
+            _invoiceHistoryControl.ReloadData();
+            _expenseControl.RefreshSuggestions();
+            _expenseControl.ReloadData();
+            _ledgerControl.RefreshSuggestions();
+            _ledgerControl.ReloadData();
+            _newHaulControl.RefreshSuggestions();
+            _summaryControl.ShowMonth(DateTime.Today);
+            UpdateDatabaseStatus();
+        };
         _expenseControl.ExpensesChanged += (_, _) =>
         {
             _ledgerControl.ReloadData();

@@ -912,6 +912,61 @@ public sealed class DatabaseService
         return Convert.ToInt32(command.ExecuteScalar(), CultureInfo.InvariantCulture);
     }
 
+    public bool HasDemoData()
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT EXISTS (
+                SELECT 1 FROM hauls WHERE notes LIKE '[DATA CONTOH]%'
+                UNION ALL
+                SELECT 1 FROM expenses WHERE description LIKE '[DATA CONTOH]%'
+            );
+            """;
+        return Convert.ToInt32(command.ExecuteScalar(), CultureInfo.InvariantCulture) == 1;
+    }
+
+    public IReadOnlyList<string> GetDemoInvoicePaths()
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT DISTINCT i.file_path
+            FROM invoices i
+            INNER JOIN invoice_hauls ih ON ih.invoice_id = i.id
+            INNER JOIN hauls h ON h.id = ih.haul_id
+            WHERE h.notes LIKE '[DATA CONTOH]%';
+            """;
+        var paths = new List<string>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            paths.Add(reader.GetString(0));
+        }
+        return paths;
+    }
+
+    public void RemoveDemoData()
+    {
+        using var connection = OpenConnection();
+        using var transaction = connection.BeginTransaction();
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            DELETE FROM invoices
+            WHERE id IN (
+                SELECT DISTINCT ih.invoice_id
+                FROM invoice_hauls ih
+                INNER JOIN hauls h ON h.id = ih.haul_id
+                WHERE h.notes LIKE '[DATA CONTOH]%'
+            );
+            DELETE FROM expenses WHERE description LIKE '[DATA CONTOH]%';
+            DELETE FROM hauls WHERE notes LIKE '[DATA CONTOH]%';
+            """;
+        command.ExecuteNonQuery();
+        transaction.Commit();
+    }
+
     private static string NormalizeDashboardPlate(string plate) =>
         string.IsNullOrWhiteSpace(plate) ? "Tanpa nopol" : plate.Trim();
 
