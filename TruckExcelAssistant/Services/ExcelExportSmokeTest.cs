@@ -17,8 +17,8 @@ internal static class ExcelExportSmokeTest
             var complete = Path.Combine(directory, "invoice-lengkap.xlsx");
             var ledger = Path.Combine(directory, "pembukuan.xlsx");
 
-            exporter.ExportCompactInvoice(records, "PT CONTOH CUSTOMER", "TEST-001", DateTime.Today, compact);
-            exporter.ExportCompleteInvoice(records, "PT CONTOH CUSTOMER", "TEST-002", DateTime.Today, complete);
+            exporter.ExportCompactInvoice(records, "PT CONTOH CUSTOMER", "TJ-20260903-001", DateTime.Today, compact);
+            exporter.ExportCompleteInvoice(records, "PT CONTOH CUSTOMER", "TJ-20260903-002", DateTime.Today, complete);
             exporter.ExportTruckLedger(records, ledger);
 
             Verify(compact, "Invoice", "I4");

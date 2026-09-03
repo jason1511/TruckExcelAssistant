@@ -22,7 +22,7 @@ public sealed class ExcelExportService
         var sheet = workbook.Worksheet("Invoice");
 
         sheet.Cell("A1").Value = $" Kepada Yth.    :      {customer.Trim()}";
-        sheet.Cell("I1").Value = $"INV. NO. {invoiceNumber.Trim()}";
+        sheet.Cell("I1").Value = invoiceNumber.Trim();
         for (var index = 0; index < records.Count; index++)
         {
             var row = index + 4;
@@ -57,7 +57,7 @@ public sealed class ExcelExportService
         var sheet = workbook.Worksheet("Invoice");
 
         sheet.Cell("A1").Value = $"Kepada Yth. {customer.Trim()}";
-        sheet.Cell("K1").Value = $"INV  {invoiceNumber.Trim()}";
+        sheet.Cell("K1").Value = invoiceNumber.Trim();
         for (var index = 0; index < records.Count; index++)
         {
             var row = index + 4;
@@ -126,7 +126,7 @@ public sealed class ExcelExportService
         SetColumnWidths(sheet, widths);
         sheet.Range("A1:H1").Merge();
         sheet.Cell("A1").Value = "Kepada Yth. :";
-        sheet.Cell("I1").Value = "INV. NO.";
+        sheet.Cell("I1").Value = "TJ";
         sheet.Row(1).Height = 24;
 
         string[] headers = ["NO.", "TGL\nMUAT", "JENIS\nMUATAN", "NOPOL", "BERAT\n(Kg.)", "ONGK\n(Rp./Kg)", "JUMLAH\n(Rp.)", "BON SANGU\n(Rp.)", "SISA ONGK.\n(Rp.)"];
@@ -182,7 +182,7 @@ public sealed class ExcelExportService
         SetColumnWidths(sheet, widths);
         sheet.Range("A1:J1").Merge();
         sheet.Cell("A1").Value = "Kepada Yth.";
-        sheet.Cell("K1").Value = "INV";
+        sheet.Cell("K1").Value = "TJ";
         sheet.Row(1).Height = 24;
 
         string[] headers = ["NO.", "TANGGAL", "JENIS\nMUATAN", "NOPOL", "BERAT\nMUAT", "BERAT\nDITERIMA", "ONGKOS", "JUMLAH", "DARI", "TUJUAN", "TOTAL"];

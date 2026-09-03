@@ -52,6 +52,29 @@ public sealed class DatabaseService
             CREATE INDEX IF NOT EXISTS ix_hauls_date ON hauls(haul_date DESC);
             CREATE INDEX IF NOT EXISTS ix_hauls_plate ON hauls(licence_plate COLLATE NOCASE);
             CREATE INDEX IF NOT EXISTS ix_hauls_customer ON hauls(customer COLLATE NOCASE);
+
+            CREATE TABLE IF NOT EXISTS invoices (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                invoice_number TEXT NOT NULL UNIQUE,
+                invoice_date TEXT NOT NULL,
+                customer TEXT NOT NULL,
+                layout INTEGER NOT NULL,
+                total_amount REAL NOT NULL DEFAULT 0,
+                file_path TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'Generated' CHECK (status IN ('Generated', 'Paid', 'Cancelled')),
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS invoice_hauls (
+                invoice_id INTEGER NOT NULL,
+                haul_id INTEGER NOT NULL,
+                PRIMARY KEY (invoice_id, haul_id),
+                FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE,
+                FOREIGN KEY (haul_id) REFERENCES hauls(id)
+            );
+
+            CREATE INDEX IF NOT EXISTS ix_invoices_date ON invoices(invoice_date DESC);
+            CREATE INDEX IF NOT EXISTS ix_invoices_customer ON invoices(customer COLLATE NOCASE);
             """;
         command.ExecuteNonQuery();
 
@@ -63,7 +86,7 @@ public sealed class DatabaseService
         }
 
         using var version = connection.CreateCommand();
-        version.CommandText = "PRAGMA user_version = 2;";
+        version.CommandText = "PRAGMA user_version = 3;";
         version.ExecuteNonQuery();
     }
 
@@ -196,7 +219,10 @@ public sealed class DatabaseService
         return records;
     }
 
-    public IReadOnlyList<HaulRecord> GetSavedHaulsForExport(DateTime from, DateTime to)
+    public IReadOnlyList<HaulRecord> GetSavedHaulsForExport(
+        DateTime from,
+        DateTime to,
+        bool excludeAlreadyInvoiced = false)
     {
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
@@ -206,10 +232,17 @@ public sealed class DatabaseService
               AND status = 'Saved'
               AND haul_date >= $from
               AND haul_date <= $to
+              AND ($excludeAlreadyInvoiced = 0 OR NOT EXISTS (
+                    SELECT 1
+                    FROM invoice_hauls ih
+                    INNER JOIN invoices i ON i.id = ih.invoice_id
+                    WHERE ih.haul_id = hauls.id AND i.status <> 'Cancelled'
+              ))
             ORDER BY haul_date, id;
             """;
         command.Parameters.AddWithValue("$from", from.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
         command.Parameters.AddWithValue("$to", to.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$excludeAlreadyInvoiced", excludeAlreadyInvoiced ? 1 : 0);
 
         var records = new List<HaulRecord>();
         using var reader = command.ExecuteReader();
@@ -218,6 +251,66 @@ public sealed class DatabaseService
             records.Add(ReadHaul(reader));
         }
         return records;
+    }
+
+    public string GetNextInvoiceNumber(DateTime invoiceDate)
+    {
+        var prefix = $"TJ-{invoiceDate:yyyyMMdd}-";
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT COALESCE(MAX(CAST(SUBSTR(invoice_number, LENGTH($prefix) + 1) AS INTEGER)), 0) + 1
+            FROM invoices
+            WHERE invoice_number LIKE $pattern;
+            """;
+        command.Parameters.AddWithValue("$prefix", prefix);
+        command.Parameters.AddWithValue("$pattern", $"{prefix}%");
+        var sequence = Convert.ToInt32(command.ExecuteScalar(), CultureInfo.InvariantCulture);
+        return $"{prefix}{sequence:000}";
+    }
+
+    public void RecordGeneratedInvoice(
+        string invoiceNumber,
+        DateTime invoiceDate,
+        string customer,
+        OutputLayout layout,
+        decimal totalAmount,
+        string filePath,
+        IReadOnlyCollection<long> haulIds)
+    {
+        using var connection = OpenConnection();
+        using var transaction = connection.BeginTransaction();
+        using var invoice = connection.CreateCommand();
+        invoice.Transaction = transaction;
+        invoice.CommandText = """
+            INSERT INTO invoices (
+                invoice_number, invoice_date, customer, layout, total_amount,
+                file_path, status, created_at
+            ) VALUES (
+                $number, $date, $customer, $layout, $total,
+                $path, 'Generated', $createdAt
+            );
+            SELECT last_insert_rowid();
+            """;
+        invoice.Parameters.AddWithValue("$number", invoiceNumber);
+        invoice.Parameters.AddWithValue("$date", invoiceDate.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        invoice.Parameters.AddWithValue("$customer", customer.Trim());
+        invoice.Parameters.AddWithValue("$layout", (int)layout);
+        invoice.Parameters.AddWithValue("$total", Convert.ToDouble(totalAmount));
+        invoice.Parameters.AddWithValue("$path", filePath);
+        invoice.Parameters.AddWithValue("$createdAt", DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture));
+        var invoiceId = Convert.ToInt64(invoice.ExecuteScalar(), CultureInfo.InvariantCulture);
+
+        foreach (var haulId in haulIds)
+        {
+            using var link = connection.CreateCommand();
+            link.Transaction = transaction;
+            link.CommandText = "INSERT INTO invoice_hauls (invoice_id, haul_id) VALUES ($invoiceId, $haulId);";
+            link.Parameters.AddWithValue("$invoiceId", invoiceId);
+            link.Parameters.AddWithValue("$haulId", haulId);
+            link.ExecuteNonQuery();
+        }
+        transaction.Commit();
     }
 
     public void MoveToTrash(long id)
