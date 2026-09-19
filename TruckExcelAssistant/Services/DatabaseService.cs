@@ -38,7 +38,7 @@ public sealed class DatabaseService
                 rate_per_kg REAL NOT NULL DEFAULT 0,
                 bon_sangu REAL NOT NULL DEFAULT 0,
                 rejection_cost REAL NOT NULL DEFAULT 0,
-                claim_amount REAL NOT NULL DEFAULT 0,
+                claim_amount REAL NULL,
                 driver_road_money REAL NOT NULL DEFAULT 0,
                 other_expense REAL NOT NULL DEFAULT 0,
                 notes TEXT NOT NULL DEFAULT '',
@@ -60,6 +60,7 @@ public sealed class DatabaseService
                 customer TEXT NOT NULL,
                 layout INTEGER NOT NULL,
                 total_amount REAL NOT NULL DEFAULT 0,
+                claim_amount REAL NOT NULL DEFAULT 0,
                 file_path TEXT NOT NULL,
                 status TEXT NOT NULL DEFAULT 'Generated' CHECK (status IN ('Generated', 'Paid', 'Cancelled')),
                 created_at TEXT NOT NULL
@@ -115,8 +116,15 @@ public sealed class DatabaseService
             migration.ExecuteNonQuery();
         }
 
+        if (!ColumnExists(connection, "invoices", "claim_amount"))
+        {
+            using var migration = connection.CreateCommand();
+            migration.CommandText = "ALTER TABLE invoices ADD COLUMN claim_amount REAL NULL;";
+            migration.ExecuteNonQuery();
+        }
+
         using var version = connection.CreateCommand();
-        version.CommandText = "PRAGMA user_version = 6;";
+        version.CommandText = "PRAGMA user_version = 7;";
         version.ExecuteNonQuery();
     }
 
@@ -521,7 +529,8 @@ public sealed class DatabaseService
         OutputLayout layout,
         decimal totalAmount,
         string filePath,
-        IReadOnlyCollection<long> haulIds)
+        IReadOnlyCollection<long> haulIds,
+        decimal claimAmount = 0)
     {
         using var connection = OpenConnection();
         using var transaction = connection.BeginTransaction();
@@ -529,10 +538,10 @@ public sealed class DatabaseService
         invoice.Transaction = transaction;
         invoice.CommandText = """
             INSERT INTO invoices (
-                invoice_number, invoice_date, customer, layout, total_amount,
+                invoice_number, invoice_date, customer, layout, total_amount, claim_amount,
                 file_path, status, created_at
             ) VALUES (
-                $number, $date, $customer, $layout, $total,
+                $number, $date, $customer, $layout, $total, $claim,
                 $path, 'Generated', $createdAt
             );
             SELECT last_insert_rowid();
@@ -542,6 +551,7 @@ public sealed class DatabaseService
         invoice.Parameters.AddWithValue("$customer", customer.Trim());
         invoice.Parameters.AddWithValue("$layout", (int)layout);
         invoice.Parameters.AddWithValue("$total", Convert.ToDouble(totalAmount));
+        invoice.Parameters.AddWithValue("$claim", Convert.ToDouble(claimAmount));
         invoice.Parameters.AddWithValue("$path", filePath);
         invoice.Parameters.AddWithValue("$createdAt", DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture));
         var invoiceId = Convert.ToInt64(invoice.ExecuteScalar(), CultureInfo.InvariantCulture);
@@ -565,7 +575,7 @@ public sealed class DatabaseService
         var search = searchText?.Trim() ?? string.Empty;
         command.CommandText = """
             SELECT i.id, i.invoice_number, i.invoice_date, i.customer, i.layout,
-                   i.total_amount, i.file_path, i.status, i.created_at,
+                   i.total_amount, i.claim_amount, i.file_path, i.status, i.created_at,
                    COUNT(ih.haul_id) AS haul_count
             FROM invoices i
             LEFT JOIN invoice_hauls ih ON ih.invoice_id = i.id
@@ -590,7 +600,7 @@ public sealed class DatabaseService
             var layout = Enum.IsDefined(typeof(OutputLayout), layoutValue)
                 ? (OutputLayout)layoutValue
                 : OutputLayout.CompleteInvoice;
-            var invoiceStatus = Enum.TryParse<InvoiceStatus>(reader.GetString(7), out var parsed)
+            var invoiceStatus = Enum.TryParse<InvoiceStatus>(reader.GetString(8), out var parsed)
                 ? parsed
                 : InvoiceStatus.Generated;
             invoices.Add(new InvoiceRecord(
@@ -600,10 +610,11 @@ public sealed class DatabaseService
                 reader.GetString(3),
                 layout,
                 ToDecimal(reader, 5),
-                reader.GetString(6),
+                reader.IsDBNull(6) ? null : ToDecimal(reader, 6),
+                reader.GetString(7),
                 invoiceStatus,
-                DateTime.Parse(reader.GetString(8), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
-                reader.GetInt32(9)));
+                DateTime.Parse(reader.GetString(9), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+                reader.GetInt32(10)));
         }
         return invoices;
     }

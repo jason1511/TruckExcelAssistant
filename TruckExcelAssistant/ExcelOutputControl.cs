@@ -21,12 +21,16 @@ public sealed class ExcelOutputControl : UserControl
     private readonly ComboBox _subject = new();
     private readonly ComboBox _layout = new();
     private readonly TextBox _invoiceNumber = new();
+    private readonly TextBox _invoiceClaim = new();
+    private readonly TextBox _invoiceTotal = new();
     private readonly Label _resultCount = new();
     private readonly Label _selectionInfo = new();
     private readonly DataGridView _grid = new();
     private readonly Button _exportButton = AppTheme.CreatePrimaryButton("Buat file Excel");
     private IReadOnlyList<HaulRecord> _records = [];
     private IReadOnlyList<ExpenseRecord> _expenses = [];
+    private bool _updatingInvoiceClaim;
+    private bool _invoiceClaimEdited;
 
     public ExcelOutputControl(DatabaseService database, ExcelExportService exporter, ExcelOutputKind kind)
     {
@@ -73,15 +77,20 @@ public sealed class ExcelOutputControl : UserControl
                 draft.Date.ToString("dd/MM/yyyy"),
                 draft.LicencePlate,
                 draft.Customer,
-                $"{draft.Origin} → {draft.Destination}",
+                string.IsNullOrWhiteSpace(draft.Origin) ? "—" : draft.Origin,
+                string.IsNullOrWhiteSpace(draft.Destination) ? "—" : draft.Destination,
                 draft.Cargo,
                 $"{IndonesianNumber.Format(draft.ReceivedWeightKg)} kg",
-                IndonesianNumber.Rupiah(draft.GrossAmount));
+                IndonesianNumber.Rupiah(draft.GrossAmount),
+                InvoiceAdjustment(draft),
+                InvoiceRowTotal(draft));
             _grid.Rows[row].Tag = record;
         }
         _resultCount.Text = _kind == ExcelOutputKind.TruckLedger
             ? $"{_records.Count} perjalanan • {_expenses.Count} pengeluaran"
             : $"{_records.Count} data ditemukan";
+        _invoiceClaimEdited = false;
+        UpdateInvoicePresentation();
         UpdateSelectionInfo();
     }
 
@@ -131,6 +140,11 @@ public sealed class ExcelOutputControl : UserControl
         _invoiceNumber.ReadOnly = true;
         _invoiceNumber.BackColor = Color.FromArgb(242, 245, 248);
         _invoiceNumber.TabStop = false;
+        ConfigureMoneyInput(_invoiceClaim);
+        ConfigureMoneyInput(_invoiceTotal);
+        _invoiceTotal.ReadOnly = true;
+        _invoiceTotal.BackColor = Color.FromArgb(242, 245, 248);
+        _invoiceTotal.TabStop = false;
         UpdateAutomaticInvoiceNumber();
 
         RefreshSuggestions();
@@ -147,7 +161,7 @@ public sealed class ExcelOutputControl : UserControl
             Padding = Padding.Empty
         };
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 72F));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, _kind == ExcelOutputKind.Invoice ? 166F : 94F));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, _kind == ExcelOutputKind.Invoice ? 232F : 94F));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 54F));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
 
@@ -205,7 +219,7 @@ public sealed class ExcelOutputControl : UserControl
         {
             Dock = DockStyle.Fill,
             ColumnCount = 4,
-            RowCount = _kind == ExcelOutputKind.Invoice ? 2 : 1,
+            RowCount = _kind == ExcelOutputKind.Invoice ? 3 : 1,
             Margin = Padding.Empty,
             Padding = Padding.Empty
         };
@@ -215,8 +229,9 @@ public sealed class ExcelOutputControl : UserControl
         }
         if (_kind == ExcelOutputKind.Invoice)
         {
-            grid.RowStyles.Add(new RowStyle(SizeType.Percent, 50F));
-            grid.RowStyles.Add(new RowStyle(SizeType.Percent, 50F));
+            grid.RowStyles.Add(new RowStyle(SizeType.Percent, 33.33F));
+            grid.RowStyles.Add(new RowStyle(SizeType.Percent, 33.33F));
+            grid.RowStyles.Add(new RowStyle(SizeType.Percent, 33.34F));
         }
         else
         {
@@ -237,6 +252,8 @@ public sealed class ExcelOutputControl : UserControl
             AddField(grid, 0, 1, "Layout invoice", _layout, 2);
             AddField(grid, 2, 1, "Nomor invoice (otomatis)", _invoiceNumber);
             AddField(grid, 3, 1, "Tanggal invoice", _issueDate);
+            AddField(grid, 0, 2, "Klaim / potongan invoice", _invoiceClaim, 2);
+            AddField(grid, 2, 2, "Total invoice", _invoiceTotal, 2);
         }
         panel.Controls.Add(grid);
         return panel;
@@ -311,10 +328,15 @@ public sealed class ExcelOutputControl : UserControl
         _grid.Columns.Add("Date", "Tanggal");
         _grid.Columns.Add("Plate", "Nopol");
         _grid.Columns.Add("Customer", "Customer");
-        _grid.Columns.Add("Route", "Rute");
+        _grid.Columns.Add("Origin", "Dari");
+        _grid.Columns.Add("Destination", "Ke");
         _grid.Columns.Add("Cargo", "Muatan");
         _grid.Columns.Add("Weight", "Berat diterima");
-        _grid.Columns.Add("Amount", "Jumlah");
+        _grid.Columns.Add("Amount", "Jumlah dasar");
+        _grid.Columns.Add("Adjustment", "Penyesuaian");
+        _grid.Columns.Add("RowTotal", "Total baris");
+        _grid.Columns["Adjustment"].Visible = _kind == ExcelOutputKind.Invoice;
+        _grid.Columns["RowTotal"].Visible = _kind == ExcelOutputKind.Invoice;
         for (var index = 1; index < _grid.Columns.Count; index++)
         {
             _grid.Columns[index].ReadOnly = true;
@@ -326,8 +348,24 @@ public sealed class ExcelOutputControl : UserControl
         _from.ValueChanged += (_, _) => EnsureDateOrder();
         _to.ValueChanged += (_, _) => EnsureDateOrder();
         _subject.SelectionChangeCommitted += (_, _) => ReloadData();
-        _layout.SelectedIndexChanged += (_, _) => UpdateSelectionInfo();
+        _layout.SelectedIndexChanged += (_, _) =>
+        {
+            _invoiceClaimEdited = false;
+            UpdateInvoicePresentation();
+            UpdateSelectionInfo();
+        };
         _issueDate.ValueChanged += (_, _) => UpdateAutomaticInvoiceNumber();
+        _invoiceClaim.TextChanged += (_, _) =>
+        {
+            if (_updatingInvoiceClaim)
+            {
+                return;
+            }
+            _invoiceClaimEdited = true;
+            UpdateInvoiceSummary();
+        };
+        _invoiceClaim.Leave += (_, _) => FormatMoneyInput(_invoiceClaim);
+        _invoiceClaim.KeyPress += NumericTextBoxKeyPress;
         _grid.CurrentCellDirtyStateChanged += (_, _) =>
         {
             if (_grid.IsCurrentCellDirty)
@@ -340,6 +378,7 @@ public sealed class ExcelOutputControl : UserControl
             if (eventArgs.ColumnIndex == 0)
             {
                 UpdateSelectionInfo();
+                UpdateInvoiceSummary();
             }
         };
     }
@@ -391,8 +430,9 @@ public sealed class ExcelOutputControl : UserControl
             }
             else
             {
-                _exporter.ExportCompleteInvoice(selected, _subject.Text, _invoiceNumber.Text, _issueDate.Value, dialog.FileName, settings);
-                RecordInvoice(selected, OutputLayout.CompleteInvoice, dialog.FileName);
+                var claim = ReadMoney(_invoiceClaim);
+                _exporter.ExportCompleteInvoice(selected, _subject.Text, _invoiceNumber.Text, _issueDate.Value, dialog.FileName, settings, claim);
+                RecordInvoice(selected, OutputLayout.CompleteInvoice, dialog.FileName, claim);
             }
 
             var result = MessageBox.Show(
@@ -425,11 +465,11 @@ public sealed class ExcelOutputControl : UserControl
             .ThenBy(record => record.Id)
             .ToList();
 
-    private void RecordInvoice(IReadOnlyList<HaulRecord> selected, OutputLayout layout, string filePath)
+    private void RecordInvoice(IReadOnlyList<HaulRecord> selected, OutputLayout layout, string filePath, decimal claimAmount = 0)
     {
         var total = layout == OutputLayout.CompactInvoice
             ? selected.Sum(item => item.Draft.GrossAmount - item.Draft.BonSangu)
-            : selected.Sum(item => item.Draft.GrossAmount + item.Draft.RejectionCost - item.Draft.ClaimAmount);
+            : selected.Sum(item => item.Draft.GrossAmount + item.Draft.RejectionCost) - claimAmount;
         _database.RecordGeneratedInvoice(
             _invoiceNumber.Text,
             _issueDate.Value,
@@ -437,7 +477,8 @@ public sealed class ExcelOutputControl : UserControl
             layout,
             total,
             filePath,
-            selected.Select(item => item.Id).ToList());
+            selected.Select(item => item.Id).ToList(),
+            claimAmount);
     }
 
     private void UpdateAutomaticInvoiceNumber()
@@ -472,6 +513,97 @@ public sealed class ExcelOutputControl : UserControl
             _selectionInfo.ForeColor = AppTheme.TextSecondary;
         }
         _exportButton.Enabled = selected > 0 || (_kind == ExcelOutputKind.TruckLedger && _expenses.Count > 0);
+        UpdateInvoiceSummary();
+    }
+
+    private void UpdateInvoicePresentation()
+    {
+        if (_kind != ExcelOutputKind.Invoice || _grid.Columns.Count == 0)
+        {
+            return;
+        }
+
+        var compact = _layout.SelectedIndex == 0;
+        _grid.Columns["Adjustment"].HeaderText = compact ? "Bon sangu" : "Penyesuaian baris";
+        foreach (DataGridViewRow row in _grid.Rows)
+        {
+            if (row.Tag is not HaulRecord record)
+            {
+                continue;
+            }
+            row.Cells["Adjustment"].Value = InvoiceAdjustment(record.Draft);
+            row.Cells["RowTotal"].Value = InvoiceRowTotal(record.Draft);
+        }
+        UpdateInvoiceSummary();
+    }
+
+    private void UpdateInvoiceSummary()
+    {
+        if (_kind != ExcelOutputKind.Invoice)
+        {
+            return;
+        }
+
+        var selected = SelectedRecords();
+        if (_layout.SelectedIndex == 0)
+        {
+            SetMoney(_invoiceClaim, 0);
+            _invoiceClaim.Enabled = false;
+            _invoiceTotal.Text = IndonesianNumber.Format(selected.Sum(item => item.Draft.GrossAmount - item.Draft.BonSangu));
+            return;
+        }
+
+        _invoiceClaim.Enabled = true;
+        if (!_invoiceClaimEdited)
+        {
+            SetMoney(_invoiceClaim, selected.Sum(item => item.Draft.ClaimAmount));
+        }
+        var total = selected.Sum(item => item.Draft.GrossAmount + item.Draft.RejectionCost) - ReadMoney(_invoiceClaim);
+        _invoiceTotal.Text = IndonesianNumber.Format(total);
+    }
+
+    private string InvoiceAdjustment(HaulDraft draft) => _kind != ExcelOutputKind.Invoice
+        ? "—"
+        : IndonesianNumber.Rupiah(_layout.SelectedIndex == 0 ? -draft.BonSangu : draft.RejectionCost);
+
+    private string InvoiceRowTotal(HaulDraft draft) => _kind != ExcelOutputKind.Invoice
+        ? "—"
+        : IndonesianNumber.Rupiah(_layout.SelectedIndex == 0
+            ? draft.GrossAmount - draft.BonSangu
+            : draft.GrossAmount + draft.RejectionCost);
+
+    private static void ConfigureMoneyInput(TextBox textBox)
+    {
+        textBox.Dock = DockStyle.Fill;
+        textBox.BorderStyle = BorderStyle.FixedSingle;
+        textBox.TextAlign = HorizontalAlignment.Right;
+        textBox.Text = "0";
+    }
+
+    private void SetMoney(TextBox textBox, decimal value)
+    {
+        _updatingInvoiceClaim = true;
+        textBox.Text = IndonesianNumber.Format(value);
+        _updatingInvoiceClaim = false;
+    }
+
+    private static decimal ReadMoney(TextBox textBox) =>
+        IndonesianNumber.TryParse(textBox.Text, out var value) ? value : 0;
+
+    private static void FormatMoneyInput(TextBox textBox)
+    {
+        if (IndonesianNumber.TryParse(textBox.Text, out var value))
+        {
+            textBox.Text = IndonesianNumber.Format(value);
+        }
+    }
+
+    private static void NumericTextBoxKeyPress(object? sender, KeyPressEventArgs e)
+    {
+        if (!char.IsControl(e.KeyChar) && !char.IsDigit(e.KeyChar) && e.KeyChar is not '.' and not ',')
+        {
+            e.Handled = true;
+        }
     }
 
     private void EnsureDateOrder()

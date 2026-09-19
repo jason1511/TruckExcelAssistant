@@ -55,7 +55,8 @@ public sealed class HaulListControl : UserControl
                 draft.Date.ToString("dd/MM/yyyy"),
                 draft.LicencePlate,
                 draft.Customer,
-                BuildRoute(draft),
+                string.IsNullOrWhiteSpace(draft.Origin) ? "—" : draft.Origin,
+                string.IsNullOrWhiteSpace(draft.Destination) ? "—" : draft.Destination,
                 draft.Cargo,
                 $"{IndonesianNumber.Format(draft.ReceivedWeightKg)} kg",
                 IndonesianNumber.Rupiah(draft.RatePerKg),
@@ -219,7 +220,8 @@ public sealed class HaulListControl : UserControl
         _grid.Columns.Add("Date", "Tanggal");
         _grid.Columns.Add("Plate", "Nopol");
         _grid.Columns.Add("Customer", "Customer");
-        _grid.Columns.Add("Route", "Rute");
+        _grid.Columns.Add("Origin", "Dari");
+        _grid.Columns.Add("Destination", "Ke");
         _grid.Columns.Add("Cargo", "Muatan");
         _grid.Columns.Add("Weight", "Berat diterima");
         _grid.Columns.Add("Rate", "Ongkos");
@@ -302,12 +304,4 @@ public sealed class HaulListControl : UserControl
         _trashButton.Text = isTrash ? "Pulihkan" : "Pindahkan ke Sampah";
     }
 
-    private static string BuildRoute(HaulDraft draft)
-    {
-        if (string.IsNullOrWhiteSpace(draft.Origin) && string.IsNullOrWhiteSpace(draft.Destination))
-        {
-            return "—";
-        }
-        return $"{draft.Origin} → {draft.Destination}";
-    }
 }

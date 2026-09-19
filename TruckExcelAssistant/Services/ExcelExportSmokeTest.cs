@@ -29,12 +29,42 @@ internal static class ExcelExportSmokeTest
             Verify(compact, "Invoice", "I4", "A24", "PT TEST TRANSPORT");
             Verify(complete, "Invoice", "K19", "A21", "PT TEST TRANSPORT");
             Verify(ledger, "N-TEST-01", "A121", "H5", "Ban: Ganti ban belakang");
+            VerifyFromToColumns(complete, ledger);
             VerifyInvoiceDatabase(directory, compact);
         }
         finally
         {
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             Directory.Delete(directory, true);
+        }
+    }
+
+    private static void VerifyFromToColumns(string completePath, string ledgerPath)
+    {
+        using (var workbook = new XLWorkbook(completePath))
+        {
+            var sheet = workbook.Worksheet("Invoice");
+            if (sheet.Cell("I2").GetString() != "DARI"
+                || sheet.Cell("J2").GetString() != "KE"
+                || sheet.Cell("I4").GetString() != "Jember"
+                || sheet.Cell("J4").GetString() != "Cirebon"
+                || sheet.Cell("K4").GetDouble() != 12_521_250
+                || sheet.Cell("K18").GetDouble() != 25_000)
+            {
+                throw new InvalidOperationException("Invoice lengkap tidak menggunakan kolom Dari dan Ke dengan benar.");
+            }
+        }
+
+        using (var workbook = new XLWorkbook(ledgerPath))
+        {
+            var sheet = workbook.Worksheet("N-TEST-01");
+            if (sheet.Cell("B3").GetString() != "DARI"
+                || sheet.Cell("C3").GetString() != "KE"
+                || sheet.Cell("B5").GetString() != "Jember"
+                || sheet.Cell("C5").GetString() != "Cirebon")
+            {
+                throw new InvalidOperationException("Pembukuan tidak menggunakan kolom Dari dan Ke dengan benar.");
+            }
         }
     }
 
@@ -54,13 +84,16 @@ internal static class ExcelExportSmokeTest
             OutputLayout.CompleteInvoice,
             12_500_000,
             invoicePath,
-            []);
+            [],
+            70_000);
         if (database.GetNextInvoiceNumber(date) != "TJ-20260903-002")
         {
             throw new InvalidOperationException("Urutan nomor invoice otomatis tidak bertambah.");
         }
         var invoices = database.GetInvoices();
-        if (invoices.Count != 1 || invoices[0].Status != InvoiceStatus.Generated)
+        if (invoices.Count != 1
+            || invoices[0].Status != InvoiceStatus.Generated
+            || invoices[0].ClaimAmount != 70_000)
         {
             throw new InvalidOperationException("Riwayat invoice tidak tersimpan dengan benar.");
         }
@@ -161,6 +194,10 @@ internal static class ExcelExportSmokeTest
             sheet.Cell("E2").Value = "BERAT";
             sheet.Cell("F2").Value = "BERAT";
             sheet.Cell("G2").Value = "ONGKOS";
+            sheet.Cell("H2").Value = "JUMLAH";
+            sheet.Cell("I2").Value = "DARI";
+            sheet.Cell("J2").Value = "TUJUAN";
+            sheet.Cell("K2").Value = "TOTAL";
             sheet.Cell("A4").Value = 1;
             sheet.Cell("B4").Value = date;
             sheet.Cell("C4").Value = "Jagung";
@@ -168,6 +205,12 @@ internal static class ExcelExportSmokeTest
             sheet.Cell("E4").Value = 46_000;
             sheet.Cell("F4").Value = 45_000;
             sheet.Cell("G4").Value = 300;
+            sheet.Cell("H4").Value = 13_500_000;
+            sheet.Cell("I4").Value = "Lumajang";
+            sheet.Cell("J4").Value = "Semarang";
+            sheet.Cell("K4").Value = 13_650_000;
+            sheet.Cell("A18").Value = "KLAIM";
+            sheet.Cell("K18").Value = 70_000;
             workbook.SaveAs(invoicePath);
         }
 
@@ -179,6 +222,9 @@ internal static class ExcelExportSmokeTest
             || result.AddedExpenses != 1
             || imported.Draft.Customer != "PT CUSTOMER LEGACY"
             || imported.Draft.Origin != "Lumajang"
+            || imported.Draft.Destination != "Semarang"
+            || imported.Draft.RejectionCost != 150_000
+            || imported.Draft.ClaimAmount != 70_000
             || imported.Draft.DriverRoadMoney != 2_000_000
             || imported.Draft.LoadedWeightKg != 46_000)
         {

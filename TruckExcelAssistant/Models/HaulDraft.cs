@@ -25,7 +25,7 @@ public sealed record HaulDraft(
     public decimal FinalAmount => Layout switch
     {
         OutputLayout.CompactInvoice => GrossAmount - BonSangu,
-        OutputLayout.CompleteInvoice => GrossAmount + RejectionCost - ClaimAmount,
+        OutputLayout.CompleteInvoice => GrossAmount + RejectionCost,
         _ => GrossAmount - DriverRoadMoney - OtherExpense
     };
 }

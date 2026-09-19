@@ -111,11 +111,15 @@ public sealed class DemoDataSeeder
         {
             _exporter.ExportCompleteInvoice(hauls, customer, number, date, path, settings);
         }
+        var claimAmount = layout == OutputLayout.CompleteInvoice
+            ? hauls.Sum(item => item.Draft.ClaimAmount)
+            : 0;
         _database.RecordGeneratedInvoice(
             number, date, customer, layout,
-            hauls.Sum(item => item.Draft.FinalAmount),
+            hauls.Sum(item => item.Draft.FinalAmount) - claimAmount,
             path,
-            hauls.Select(item => item.Id).ToList());
+            hauls.Select(item => item.Id).ToList(),
+            claimAmount);
         if (markPaid)
         {
             var invoice = _database.GetInvoices(number).Single(item => item.InvoiceNumber == number);
