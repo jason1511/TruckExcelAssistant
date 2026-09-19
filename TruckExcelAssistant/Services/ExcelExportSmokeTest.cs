@@ -60,8 +60,8 @@ internal static class ExcelExportSmokeTest
             var sheet = workbook.Worksheet("N-TEST-01");
             if (sheet.Cell("B3").GetString() != "DARI"
                 || sheet.Cell("C3").GetString() != "KE"
-                || sheet.Cell("B5").GetString() != "Jember"
-                || sheet.Cell("C5").GetString() != "Cirebon")
+                || sheet.Cell("B6").GetString() != "Jember"
+                || sheet.Cell("C6").GetString() != "Cirebon")
             {
                 throw new InvalidOperationException("Pembukuan tidak menggunakan kolom Dari dan Ke dengan benar.");
             }

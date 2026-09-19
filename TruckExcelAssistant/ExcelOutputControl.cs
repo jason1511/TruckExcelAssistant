@@ -335,8 +335,12 @@ public sealed class ExcelOutputControl : UserControl
         _grid.Columns.Add("Amount", "Jumlah dasar");
         _grid.Columns.Add("Adjustment", "Penyesuaian");
         _grid.Columns.Add("RowTotal", "Total baris");
-        _grid.Columns["Adjustment"].Visible = _kind == ExcelOutputKind.Invoice;
-        _grid.Columns["RowTotal"].Visible = _kind == ExcelOutputKind.Invoice;
+        var adjustmentColumn = _grid.Columns["Adjustment"]
+            ?? throw new InvalidOperationException("Kolom penyesuaian tidak tersedia.");
+        var rowTotalColumn = _grid.Columns["RowTotal"]
+            ?? throw new InvalidOperationException("Kolom total baris tidak tersedia.");
+        adjustmentColumn.Visible = _kind == ExcelOutputKind.Invoice;
+        rowTotalColumn.Visible = _kind == ExcelOutputKind.Invoice;
         for (var index = 1; index < _grid.Columns.Count; index++)
         {
             _grid.Columns[index].ReadOnly = true;
@@ -524,7 +528,9 @@ public sealed class ExcelOutputControl : UserControl
         }
 
         var compact = _layout.SelectedIndex == 0;
-        _grid.Columns["Adjustment"].HeaderText = compact ? "Bon sangu" : "Penyesuaian baris";
+        var adjustmentColumn = _grid.Columns["Adjustment"]
+            ?? throw new InvalidOperationException("Kolom penyesuaian tidak tersedia.");
+        adjustmentColumn.HeaderText = compact ? "Bon sangu" : "Penyesuaian baris";
         foreach (DataGridViewRow row in _grid.Rows)
         {
             if (row.Tag is not HaulRecord record)
