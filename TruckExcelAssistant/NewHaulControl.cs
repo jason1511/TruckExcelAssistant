@@ -312,7 +312,7 @@ public sealed class NewHaulControl : UserControl
         ConfigureFieldContainer(_customerField);
         fields.Controls.Add(_customerField, 3, 0);
         AddField(fields, 0, 1, "Dari", _origin, 2);
-        AddField(fields, 2, 1, "Tujuan", _destination, 2);
+        AddField(fields, 2, 1, "Ke", _destination, 2);
         return CreateSection("Identitas perjalanan", fields);
     }
 
@@ -334,10 +334,10 @@ public sealed class NewHaulControl : UserControl
         _bonSanguField.Controls.Add(CreateField("Bon sangu", _bonSangu));
 
         ConfigureFieldContainer(_rejectionCostField);
-        _rejectionCostField.Controls.Add(CreateField("Biaya tolakan / uang makan", _rejectionCost));
+        _rejectionCostField.Controls.Add(CreateField("Penyesuaian baris (+/-)", _rejectionCost));
 
         ConfigureFieldContainer(_claimField);
-        _claimField.Controls.Add(CreateField("Nilai klaim", _claimAmount));
+        _claimField.Controls.Add(CreateField("Klaim lama (hasil impor)", _claimAmount));
 
         PrepareDynamicField(_driverRoadMoneyField, "Uang jalan sopir", _driverRoadMoney);
         PrepareDynamicField(_otherExpenseField, "Biaya lainnya", _otherExpense);
@@ -473,12 +473,14 @@ public sealed class NewHaulControl : UserControl
         _previewGrid.Columns.Add("Date", "Tanggal");
         _previewGrid.Columns.Add("Plate", "Nopol");
         _previewGrid.Columns.Add("Customer", "Customer");
-        _previewGrid.Columns.Add("Route", "Rute");
+        _previewGrid.Columns.Add("Origin", "Dari");
+        _previewGrid.Columns.Add("Destination", "Ke");
         _previewGrid.Columns.Add("Cargo", "Barang");
         _previewGrid.Columns.Add("Weight", "Berat diterima");
         _previewGrid.Columns.Add("Rate", "Ongkos");
-        _previewGrid.Columns.Add("Gross", "Jumlah");
-        _previewGrid.Columns.Add("Final", "Hasil akhir");
+        _previewGrid.Columns.Add("Gross", "Jumlah dasar");
+        _previewGrid.Columns.Add("Adjustment", "Penyesuaian");
+        _previewGrid.Columns.Add("Final", "Total baris");
     }
 
     private void WireEvents()
@@ -520,14 +522,19 @@ public sealed class NewHaulControl : UserControl
         _adjustmentLabel.Text = layout switch
         {
             OutputLayout.CompactInvoice => "Bon sangu",
-            OutputLayout.CompleteInvoice => "Biaya / klaim",
+            OutputLayout.CompleteInvoice => "Penyesuaian baris",
             _ => "Uang jalan / biaya"
         };
-        _finalLabel.Text = layout == OutputLayout.TruckLedger ? "Perkiraan bersih" : "Total invoice";
+        _finalLabel.Text = layout switch
+        {
+            OutputLayout.TruckLedger => "Perkiraan bersih",
+            OutputLayout.CompleteInvoice => "Total baris",
+            _ => "Total invoice"
+        };
         _calculationNote.Text = layout switch
         {
             OutputLayout.CompactInvoice => "Layout invoice ringkas: jumlah angkutan dikurangi bon sangu. Customer dipilih secara terpisah.",
-            OutputLayout.CompleteInvoice => "Layout invoice lengkap: jumlah ditambah biaya tolakan lalu dikurangi klaim. Customer dipilih secara terpisah.",
+            OutputLayout.CompleteInvoice => "Gunakan nilai positif untuk tambahan dan negatif untuk potongan. Klaim akhir diisi saat membuat invoice.",
             _ => "Pembukuan: pemasukan angkutan dikurangi uang jalan sopir dan biaya lainnya."
         };
 
@@ -547,8 +554,7 @@ public sealed class NewHaulControl : UserControl
                 AddExistingField(_adjustmentGrid, _otherExpenseField, 3, 0);
                 break;
             case OutputLayout.CompleteInvoice:
-                AddExistingField(_adjustmentGrid, _rejectionCostField, 0, 0);
-                AddExistingField(_adjustmentGrid, _claimField, 1, 0);
+                AddExistingField(_adjustmentGrid, _rejectionCostField, 0, 0, 2);
                 AddExistingField(_adjustmentGrid, _driverRoadMoneyField, 2, 0);
                 AddExistingField(_adjustmentGrid, _otherExpenseField, 3, 0);
                 break;
@@ -574,7 +580,7 @@ public sealed class NewHaulControl : UserControl
         var adjustment = _layout switch
         {
             OutputLayout.CompactInvoice => -draft.BonSangu,
-            OutputLayout.CompleteInvoice => draft.RejectionCost - draft.ClaimAmount,
+            OutputLayout.CompleteInvoice => draft.RejectionCost,
             _ => -(draft.DriverRoadMoney + draft.OtherExpense)
         };
         _adjustmentValue.Text = IndonesianNumber.Rupiah(adjustment);
@@ -617,11 +623,18 @@ public sealed class NewHaulControl : UserControl
             draft.Date.ToString("dd/MM/yyyy"),
             string.IsNullOrWhiteSpace(draft.LicencePlate) ? "—" : draft.LicencePlate,
             string.IsNullOrWhiteSpace(draft.Customer) ? "—" : draft.Customer,
-            BuildRoute(draft),
+            string.IsNullOrWhiteSpace(draft.Origin) ? "—" : draft.Origin,
+            string.IsNullOrWhiteSpace(draft.Destination) ? "—" : draft.Destination,
             string.IsNullOrWhiteSpace(draft.Cargo) ? "—" : draft.Cargo,
             $"{IndonesianNumber.Format(draft.ReceivedWeightKg)} kg",
             IndonesianNumber.Rupiah(draft.RatePerKg),
             IndonesianNumber.Rupiah(draft.GrossAmount),
+            IndonesianNumber.Rupiah(_layout switch
+            {
+                OutputLayout.CompactInvoice => -draft.BonSangu,
+                OutputLayout.CompleteInvoice => draft.RejectionCost,
+                _ => -(draft.DriverRoadMoney + draft.OtherExpense)
+            }),
             IndonesianNumber.Rupiah(draft.FinalAmount));
     }
 
@@ -772,15 +785,6 @@ public sealed class NewHaulControl : UserControl
         return false;
     }
 
-    private static string BuildRoute(HaulDraft draft)
-    {
-        if (string.IsNullOrWhiteSpace(draft.Origin) && string.IsNullOrWhiteSpace(draft.Destination))
-        {
-            return "—";
-        }
-        return $"{draft.Origin} → {draft.Destination}";
-    }
-
     private static decimal ReadNumber(TextBox textBox) =>
         IndonesianNumber.TryParse(textBox.Text, out var value) ? value : 0;
 
@@ -792,8 +796,15 @@ public sealed class NewHaulControl : UserControl
         }
     }
 
-    private static void NumericTextBoxKeyPress(object? sender, KeyPressEventArgs e)
+    private void NumericTextBoxKeyPress(object? sender, KeyPressEventArgs e)
     {
+        if (ReferenceEquals(sender, _rejectionCost)
+            && e.KeyChar == '-'
+            && _rejectionCost.SelectionStart == 0
+            && !_rejectionCost.Text.Contains('-'))
+        {
+            return;
+        }
         if (!char.IsControl(e.KeyChar) && !char.IsDigit(e.KeyChar) && e.KeyChar is not '.' and not ',')
         {
             e.Handled = true;

@@ -7,6 +7,7 @@ public sealed record InvoiceRecord(
     string Customer,
     OutputLayout Layout,
     decimal TotalAmount,
+    decimal? ClaimAmount,
     string FilePath,
     InvoiceStatus Status,
     DateTime CreatedAt,

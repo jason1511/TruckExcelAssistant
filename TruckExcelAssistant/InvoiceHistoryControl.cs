@@ -57,12 +57,13 @@ public sealed class InvoiceHistoryControl : UserControl
                 LayoutText(invoice.Layout),
                 invoice.HaulCount,
                 IndonesianNumber.Rupiah(invoice.TotalAmount),
+                IndonesianNumber.Rupiah(invoice.ClaimAmount ?? 0),
                 StatusText(invoice.Status),
                 exists ? "Tersedia" : "Tidak ditemukan");
             _grid.Rows[row].Tag = invoice;
             if (!exists)
             {
-                _grid.Rows[row].Cells[7].Style.ForeColor = AppTheme.Warning;
+                _grid.Rows[row].Cells[8].Style.ForeColor = AppTheme.Warning;
             }
         }
         _resultCount.Text = invoices.Count == 1 ? "1 invoice" : $"{invoices.Count} invoice";
@@ -208,6 +209,7 @@ public sealed class InvoiceHistoryControl : UserControl
         _grid.Columns.Add("Layout", "Layout");
         _grid.Columns.Add("Hauls", "Perjalanan");
         _grid.Columns.Add("Total", "Total");
+        _grid.Columns.Add("Claim", "Klaim");
         _grid.Columns.Add("Status", "Status");
         _grid.Columns.Add("File", "File Excel");
     }
@@ -321,7 +323,14 @@ public sealed class InvoiceHistoryControl : UserControl
             }
             else
             {
-                _exporter.ExportCompleteInvoice(hauls, invoice.Customer, invoice.InvoiceNumber, invoice.InvoiceDate, dialog.FileName, settings);
+                _exporter.ExportCompleteInvoice(
+                    hauls,
+                    invoice.Customer,
+                    invoice.InvoiceNumber,
+                    invoice.InvoiceDate,
+                    dialog.FileName,
+                    settings,
+                    invoice.ClaimAmount ?? hauls.Sum(item => item.Draft.ClaimAmount));
             }
             _database.UpdateInvoiceFilePath(invoice.Id, dialog.FileName);
             ReloadData();

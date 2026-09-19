@@ -124,6 +124,10 @@ public sealed class LegacyWorkbookImporter
             var plateColumn = FindColumn(sheet, headerRow, lastColumn, value => value == "NOPOL");
             var weightColumns = FindColumns(sheet, headerRow, lastColumn, value => value.StartsWith("BERAT", StringComparison.Ordinal));
             var rateColumn = FindColumn(sheet, headerRow, lastColumn, value => value is "ONGK" or "ONGKOS");
+            var originColumn = FindColumn(sheet, headerRow, lastColumn, value => value == "DARI");
+            var destinationColumn = FindColumn(sheet, headerRow, lastColumn, value => value is "KE" or "TUJUAN");
+            var amountColumn = FindColumn(sheet, headerRow, lastColumn, value => value == "JUMLAH");
+            var totalColumn = FindColumn(sheet, headerRow, lastColumn, value => value == "TOTAL");
             var bonColumn = FindColumn(sheet, headerRow, lastColumn, value => value.Contains("BON SANGU", StringComparison.Ordinal));
             var rejectionColumn = FindColumn(sheet, headerRow, lastColumn, value => value.StartsWith("BIAYA TOLAKAN", StringComparison.Ordinal));
             if (dateColumn == 0 || cargoColumn == 0 || plateColumn == 0 || weightColumns.Count == 0 || rateColumn == 0)
@@ -134,6 +138,8 @@ public sealed class LegacyWorkbookImporter
             var customer = CustomerName(sheet.Cell(1, 1).GetFormattedString());
             var compact = bonColumn > 0;
             var lastRow = sheet.LastRowUsed()?.RowNumber() ?? 0;
+            var inlineClaim = ReadInlineClaim(sheet, headerRow + 1, lastRow, lastColumn);
+            var inlineClaimAssigned = false;
             for (var row = headerRow + 1; row <= lastRow; row++)
             {
                 if (Number(sheet.Cell(row, 1)) <= 0)
@@ -151,11 +157,29 @@ public sealed class LegacyWorkbookImporter
                     continue;
                 }
                 claims.TryGetValue(ClaimKey(date.Value, plate, loaded, received), out var claim);
+                if (claim == 0 && inlineClaim > 0 && !inlineClaimAssigned)
+                {
+                    claim = inlineClaim;
+                    inlineClaimAssigned = true;
+                }
+                var baseAmount = received * rate;
+                var displayedAmount = amountColumn > 0 ? Number(sheet.Cell(row, amountColumn)) : 0;
+                if (displayedAmount <= 0)
+                {
+                    displayedAmount = baseAmount;
+                }
+                var additionalCost = rejectionColumn > 0
+                    ? Number(sheet.Cell(row, rejectionColumn))
+                    : totalColumn > 0
+                        ? Number(sheet.Cell(row, totalColumn)) - displayedAmount
+                        : 0;
                 var draft = new HaulDraft(
-                    date.Value, plate, cargo, customer, string.Empty, string.Empty,
+                    date.Value, plate, cargo, customer,
+                    originColumn > 0 ? Text(sheet.Cell(row, originColumn)) : string.Empty,
+                    destinationColumn > 0 ? Text(sheet.Cell(row, destinationColumn)) : string.Empty,
                     loaded, received, rate,
                     bonColumn > 0 ? Number(sheet.Cell(row, bonColumn)) : 0,
-                    rejectionColumn > 0 ? Number(sheet.Cell(row, rejectionColumn)) : 0,
+                    additionalCost,
                     claim,
                     0, 0,
                     $"{ImportTag} {Path.GetFileName(path)} / {sheet.Name} / baris {row}",
@@ -252,6 +276,35 @@ public sealed class LegacyWorkbookImporter
             }
         }
         return claims;
+    }
+
+    private static decimal ReadInlineClaim(IXLWorksheet sheet, int firstRow, int lastRow, int lastColumn)
+    {
+        for (var row = firstRow; row <= lastRow; row++)
+        {
+            var label = string.Empty;
+            for (var column = 1; column <= lastColumn; column++)
+            {
+                if (Header(sheet.Cell(row, column)) == "KLAIM")
+                {
+                    label = "KLAIM";
+                    break;
+                }
+            }
+            if (label.Length == 0)
+            {
+                continue;
+            }
+            for (var column = lastColumn; column >= 1; column--)
+            {
+                var amount = Number(sheet.Cell(row, column));
+                if (amount > 0)
+                {
+                    return amount;
+                }
+            }
+        }
+        return 0;
     }
 
     private static int FindHeaderRow(IXLWorksheet sheet)

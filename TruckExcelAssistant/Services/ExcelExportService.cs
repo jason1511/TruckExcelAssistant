@@ -52,7 +52,8 @@ public sealed class ExcelExportService
         string invoiceNumber,
         DateTime issueDate,
         string outputPath,
-        AppSettings? settings = null)
+        AppSettings? settings = null,
+        decimal? invoiceClaimAmount = null)
     {
         ValidateCount(records, 13, "Invoice lengkap");
         using var workbook = CreateCompleteWorkbook();
@@ -78,7 +79,7 @@ public sealed class ExcelExportService
         }
 
         sheet.Cell("K17").FormulaA1 = "=SUM(K4:K16)";
-        SetNumber(sheet.Cell("K18"), records.Sum(item => item.Draft.ClaimAmount));
+        SetNumber(sheet.Cell("K18"), invoiceClaimAmount ?? records.Sum(item => item.Draft.ClaimAmount));
         sheet.Cell("K19").FormulaA1 = "=K17-K18";
         ApplyCompleteSettings(sheet, settings ?? AppSettings.Default, issueDate);
         Finish(workbook, outputPath);
@@ -205,7 +206,7 @@ public sealed class ExcelExportService
         sheet.Cell("K1").Value = "TJ";
         sheet.Row(1).Height = 24;
 
-        string[] headers = ["NO.", "TANGGAL", "JENIS\nMUATAN", "NOPOL", "BERAT\nMUAT", "BERAT\nDITERIMA", "ONGKOS", "JUMLAH", "DARI", "TUJUAN", "TOTAL"];
+        string[] headers = ["NO.", "TANGGAL", "JENIS\nMUATAN", "NOPOL", "BERAT\nMUAT", "BERAT\nDITERIMA", "ONGKOS", "JUMLAH", "DARI", "KE", "TOTAL"];
         for (var column = 1; column <= headers.Length; column++)
         {
             sheet.Cell(2, column).Value = headers[column - 1];
@@ -270,13 +271,13 @@ public sealed class ExcelExportService
             sheet.Cell(sectionRow, 2).Value = "PEMASUKAN";
             sheet.Range(sectionRow, 8, sectionRow, 10).Merge();
             sheet.Cell(sectionRow, 8).Value = "PENGELUARAN";
-            sheet.Range(headerRow, 2, headerRow, 3).Merge();
-            sheet.Cell(headerRow, 2).Value = "TUJUAN";
+            sheet.Range(headerRow, 2, subheaderRow, 2).Merge();
+            sheet.Cell(headerRow, 2).Value = "DARI";
+            sheet.Range(headerRow, 3, subheaderRow, 3).Merge();
+            sheet.Cell(headerRow, 3).Value = "KE";
             sheet.Range(headerRow, 4, headerRow, 5).Merge();
             sheet.Cell(headerRow, 4).Value = "MUATAN";
             sheet.Cell(subheaderRow, 1).Value = "TGL";
-            sheet.Cell(subheaderRow, 2).Value = "DARI";
-            sheet.Cell(subheaderRow, 3).Value = "KE";
             sheet.Cell(subheaderRow, 4).Value = "BARANG";
             sheet.Cell(subheaderRow, 5).Value = "BERAT (KG)";
             sheet.Cell(headerRow, 6).Value = "ONGKOS";
