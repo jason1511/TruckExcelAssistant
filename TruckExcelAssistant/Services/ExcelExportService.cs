@@ -37,7 +37,8 @@ public sealed class ExcelExportService
         RequireMaximum(records, 13, "Mirip Sumber Pangan");
         using var book = new XLWorkbook();
         BuildSumberPangan(book.AddWorksheet("Invoice"), records, customer, invoiceNumber, issueDate,
-            settings ?? AppSettings.Default, invoiceClaimAmount ?? 0);
+            settings ?? AppSettings.Default,
+            invoiceClaimAmount ?? records.Sum(item => item.Draft.EffectiveClaimAmount));
         Save(book, outputPath);
     }
 
