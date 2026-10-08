@@ -38,6 +38,8 @@ public sealed class DatabaseService
                 rate_per_kg REAL NOT NULL DEFAULT 0,
                 bon_sangu REAL NOT NULL DEFAULT 0,
                 rejection_cost REAL NOT NULL DEFAULT 0,
+                claim_weight_kg REAL NOT NULL DEFAULT 0,
+                claim_rate_per_kg REAL NOT NULL DEFAULT 0,
                 claim_amount REAL NULL,
                 driver_road_money REAL NOT NULL DEFAULT 0,
                 other_expense REAL NOT NULL DEFAULT 0,
@@ -123,8 +125,22 @@ public sealed class DatabaseService
             migration.ExecuteNonQuery();
         }
 
+        if (!ColumnExists(connection, "hauls", "claim_weight_kg"))
+        {
+            using var migration = connection.CreateCommand();
+            migration.CommandText = "ALTER TABLE hauls ADD COLUMN claim_weight_kg REAL NOT NULL DEFAULT 0;";
+            migration.ExecuteNonQuery();
+        }
+
+        if (!ColumnExists(connection, "hauls", "claim_rate_per_kg"))
+        {
+            using var migration = connection.CreateCommand();
+            migration.CommandText = "ALTER TABLE hauls ADD COLUMN claim_rate_per_kg REAL NOT NULL DEFAULT 0;";
+            migration.ExecuteNonQuery();
+        }
+
         using var version = connection.CreateCommand();
-        version.CommandText = "PRAGMA user_version = 7;";
+        version.CommandText = "PRAGMA user_version = 8;";
         version.ExecuteNonQuery();
     }
 
@@ -136,12 +152,14 @@ public sealed class DatabaseService
             INSERT INTO hauls (
                 haul_date, licence_plate, cargo, customer, origin, destination,
                 loaded_weight_kg, received_weight_kg, rate_per_kg, bon_sangu,
-                rejection_cost, claim_amount, driver_road_money, other_expense,
+                rejection_cost, claim_weight_kg, claim_rate_per_kg, claim_amount,
+                driver_road_money, other_expense,
                 notes, preview_layout, status, created_at, updated_at
             ) VALUES (
                 $date, $plate, $cargo, $customer, $origin, $destination,
                 $loadedWeight, $receivedWeight, $rate, $bonSangu,
-                $rejectionCost, $claimAmount, $driverRoadMoney, $otherExpense,
+                $rejectionCost, $claimWeight, $claimRate, $claimAmount,
+                $driverRoadMoney, $otherExpense,
                 $notes, $layout, $status, $createdAt, $updatedAt
             );
             SELECT last_insert_rowid();
@@ -159,6 +177,8 @@ public sealed class DatabaseService
         command.Parameters.AddWithValue("$rate", Convert.ToDouble(draft.RatePerKg));
         command.Parameters.AddWithValue("$bonSangu", Convert.ToDouble(draft.BonSangu));
         command.Parameters.AddWithValue("$rejectionCost", Convert.ToDouble(draft.RejectionCost));
+        command.Parameters.AddWithValue("$claimWeight", Convert.ToDouble(draft.ClaimWeightKg));
+        command.Parameters.AddWithValue("$claimRate", Convert.ToDouble(draft.ClaimRatePerKg));
         command.Parameters.AddWithValue("$claimAmount", Convert.ToDouble(draft.ClaimAmount));
         command.Parameters.AddWithValue("$driverRoadMoney", Convert.ToDouble(draft.DriverRoadMoney));
         command.Parameters.AddWithValue("$otherExpense", Convert.ToDouble(draft.OtherExpense));
@@ -188,6 +208,8 @@ public sealed class DatabaseService
                 rate_per_kg = $rate,
                 bon_sangu = $bonSangu,
                 rejection_cost = $rejectionCost,
+                claim_weight_kg = $claimWeight,
+                claim_rate_per_kg = $claimRate,
                 claim_amount = $claimAmount,
                 driver_road_money = $driverRoadMoney,
                 other_expense = $otherExpense,
@@ -321,11 +343,9 @@ public sealed class DatabaseService
         }
 
         var defaults = AppSettings.Default;
-        var layout = values.TryGetValue("default_invoice_layout", out var layoutValue)
-                     && Enum.TryParse<OutputLayout>(layoutValue, out var parsedLayout)
-                     && parsedLayout is OutputLayout.CompactInvoice or OutputLayout.CompleteInvoice
-            ? parsedLayout
-            : defaults.DefaultInvoiceLayout;
+        var layout = OutputLayoutNames.ParseInvoiceSetting(
+            values.TryGetValue("default_invoice_layout", out var layoutValue) ? layoutValue : null,
+            defaults.DefaultInvoiceLayout);
         var digits = values.TryGetValue("invoice_sequence_digits", out var digitsValue)
                      && int.TryParse(digitsValue, CultureInfo.InvariantCulture, out var parsedDigits)
             ? Math.Clamp(parsedDigits, 3, 6)
@@ -599,7 +619,7 @@ public sealed class DatabaseService
             var layoutValue = reader.GetInt32(4);
             var layout = Enum.IsDefined(typeof(OutputLayout), layoutValue)
                 ? (OutputLayout)layoutValue
-                : OutputLayout.CompleteInvoice;
+                : OutputLayout.SumberPanganLike;
             var invoiceStatus = Enum.TryParse<InvoiceStatus>(reader.GetString(8), out var parsed)
                 ? parsed
                 : InvoiceStatus.Generated;
@@ -626,7 +646,8 @@ public sealed class DatabaseService
         command.CommandText = """
             SELECT h.id, h.haul_date, h.licence_plate, h.cargo, h.customer, h.origin, h.destination,
                    h.loaded_weight_kg, h.received_weight_kg, h.rate_per_kg, h.bon_sangu,
-                   h.rejection_cost, h.claim_amount, h.driver_road_money, h.other_expense,
+                   h.rejection_cost, h.claim_weight_kg, h.claim_rate_per_kg, h.claim_amount,
+                   h.driver_road_money, h.other_expense,
                    h.notes, h.preview_layout, h.status, h.created_at, h.updated_at, h.deleted_at
             FROM hauls h
             INNER JOIN invoice_hauls ih ON ih.haul_id = h.id
@@ -1004,6 +1025,8 @@ public sealed class DatabaseService
         command.Parameters.AddWithValue("$rate", Convert.ToDouble(draft.RatePerKg));
         command.Parameters.AddWithValue("$bonSangu", Convert.ToDouble(draft.BonSangu));
         command.Parameters.AddWithValue("$rejectionCost", Convert.ToDouble(draft.RejectionCost));
+        command.Parameters.AddWithValue("$claimWeight", Convert.ToDouble(draft.ClaimWeightKg));
+        command.Parameters.AddWithValue("$claimRate", Convert.ToDouble(draft.ClaimRatePerKg));
         command.Parameters.AddWithValue("$claimAmount", Convert.ToDouble(draft.ClaimAmount));
         command.Parameters.AddWithValue("$driverRoadMoney", Convert.ToDouble(draft.DriverRoadMoney));
         command.Parameters.AddWithValue("$otherExpense", Convert.ToDouble(draft.OtherExpense));
@@ -1031,18 +1054,19 @@ public sealed class DatabaseService
     private const string SelectHaulSql = """
         SELECT id, haul_date, licence_plate, cargo, customer, origin, destination,
                loaded_weight_kg, received_weight_kg, rate_per_kg, bon_sangu,
-               rejection_cost, claim_amount, driver_road_money, other_expense,
+               rejection_cost, claim_weight_kg, claim_rate_per_kg, claim_amount,
+               driver_road_money, other_expense,
                notes, preview_layout, status, created_at, updated_at, deleted_at
         FROM hauls
         """;
 
     private static HaulRecord ReadHaul(SqliteDataReader reader)
     {
-        var layoutValue = reader.GetInt32(16);
+        var layoutValue = reader.GetInt32(18);
         var layout = Enum.IsDefined(typeof(OutputLayout), layoutValue)
             ? (OutputLayout)layoutValue
-            : OutputLayout.CompleteInvoice;
-        var status = Enum.TryParse<HaulStatus>(reader.GetString(17), out var parsedStatus)
+            : OutputLayout.SumberPanganLike;
+        var status = Enum.TryParse<HaulStatus>(reader.GetString(19), out var parsedStatus)
             ? parsedStatus
             : HaulStatus.Saved;
 
@@ -1061,18 +1085,20 @@ public sealed class DatabaseService
             ToDecimal(reader, 12),
             ToDecimal(reader, 13),
             ToDecimal(reader, 14),
-            reader.GetString(15),
+            ToDecimal(reader, 15),
+            ToDecimal(reader, 16),
+            reader.GetString(17),
             layout);
 
         return new HaulRecord(
             reader.GetInt64(0),
             draft,
             status,
-            DateTime.Parse(reader.GetString(18), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
-            DateTime.Parse(reader.GetString(19), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
-            reader.IsDBNull(20)
+            DateTime.Parse(reader.GetString(20), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+            DateTime.Parse(reader.GetString(21), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+            reader.IsDBNull(22)
                 ? null
-                : DateTime.Parse(reader.GetString(20), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind));
+                : DateTime.Parse(reader.GetString(22), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind));
     }
 
     private static ExpenseRecord ReadExpense(SqliteDataReader reader) => new(
@@ -1089,7 +1115,7 @@ public sealed class DatabaseService
             : DateTime.Parse(reader.GetString(8), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind));
 
     private static decimal ToDecimal(SqliteDataReader reader, int ordinal) =>
-        (decimal)reader.GetDouble(ordinal);
+        reader.IsDBNull(ordinal) ? 0 : (decimal)reader.GetDouble(ordinal);
 
     private static string GetSetting(
         IReadOnlyDictionary<string, string> settings,

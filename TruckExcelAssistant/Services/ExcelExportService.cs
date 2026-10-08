@@ -18,7 +18,7 @@ public sealed class ExcelExportService
         string outputPath,
         AppSettings? settings = null)
     {
-        ValidateCount(records, 19, "Invoice ringkas");
+        ValidateCount(records, 19, "Mirip Miguno");
         using var workbook = CreateCompactWorkbook();
         var sheet = workbook.Worksheet("Invoice");
 
@@ -55,7 +55,7 @@ public sealed class ExcelExportService
         AppSettings? settings = null,
         decimal? invoiceClaimAmount = null)
     {
-        ValidateCount(records, 13, "Invoice lengkap");
+        ValidateCount(records, 13, "Mirip Sumber Pangan");
         using var workbook = CreateCompleteWorkbook();
         var sheet = workbook.Worksheet("Invoice");
 

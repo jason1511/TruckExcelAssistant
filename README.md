@@ -1,13 +1,15 @@
 # Truck Excel Assistant
 
-A Windows desktop application that reduces repetitive data entry across truck bookkeeping and two reusable customer invoice layouts.
+A Windows desktop application that reduces repetitive data entry across truck bookkeeping and reusable customer-like invoice layouts.
 
 ## Current phase
 
 The current phase provides a responsive native WinForms shell, a universal haul-entry screen, and portable local storage. It includes:
 
 - enter each haul once for truck bookkeeping and customer invoicing;
-- selectable bookkeeping, compact invoice, and complete invoice layouts;
+- one universal entry form with Pembukuan, Mirip Miguno, Mirip Agrico, and Mirip Sumber Pangan modes;
+- separate Dari and Ke fields without route management;
+- Agrico-style claim quantity, claim rate, and calculated claim total;
 - editable customer dropdown ready to learn from saved customer names;
 - a SQLite database stored beside the executable;
 - working saved and draft records;
@@ -18,9 +20,10 @@ The current phase provides a responsive native WinForms shell, a universal haul-
 - live gross, adjustment, and final calculations;
 - licence-plate normalization;
 - validation for required invoice fields; and
-- an Excel-row preview.
+- an Excel-row preview; and
+- working Excel generation for the current Mirip Miguno, Mirip Sumber Pangan, and Pembukuan layouts.
 
-The database is created automatically as `truck_excel_assistant.db`. Excel generation is the next implementation phase.
+The database is created automatically as `truck_excel_assistant.db`. The next phase is exact template-based Excel generation, including Mirip Agrico and its separate claim sheet.
 
 ## Technology
 

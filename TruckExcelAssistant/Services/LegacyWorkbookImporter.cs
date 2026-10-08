@@ -79,7 +79,7 @@ public sealed class LegacyWorkbookImporter
                         row,
                         new HaulDraft(
                             currentDate.Value, sheet.Name.Trim(), cargo, string.Empty, origin, destination,
-                            weight, weight, rate, 0, 0, 0, roadMoney, otherExpense,
+                            weight, weight, rate, 0, 0, 0, 0, 0, roadMoney, otherExpense,
                             $"{ImportTag} {Path.GetFileName(path)} / {sheet.Name} / baris {row}",
                             OutputLayout.TruckLedger),
                         preferIncomingInvoiceFields: false);
@@ -111,6 +111,7 @@ public sealed class LegacyWorkbookImporter
     {
         using var workbook = new XLWorkbook(path);
         var claims = ReadClaims(workbook);
+        var hasClaimSheets = workbook.Worksheets.Any(item => item.Name.StartsWith("KLAIM", StringComparison.OrdinalIgnoreCase));
         foreach (var sheet in workbook.Worksheets.Where(item => item.Name.StartsWith("INV", StringComparison.OrdinalIgnoreCase)))
         {
             var headerRow = FindHeaderRow(sheet);
@@ -157,9 +158,10 @@ public sealed class LegacyWorkbookImporter
                     continue;
                 }
                 claims.TryGetValue(ClaimKey(date.Value, plate, loaded, received), out var claim);
-                if (claim == 0 && inlineClaim > 0 && !inlineClaimAssigned)
+                var importedClaimAmount = claim?.Amount ?? 0;
+                if (importedClaimAmount == 0 && inlineClaim > 0 && !inlineClaimAssigned)
                 {
-                    claim = inlineClaim;
+                    importedClaimAmount = inlineClaim;
                     inlineClaimAssigned = true;
                 }
                 var baseAmount = received * rate;
@@ -180,10 +182,16 @@ public sealed class LegacyWorkbookImporter
                     loaded, received, rate,
                     bonColumn > 0 ? Number(sheet.Cell(row, bonColumn)) : 0,
                     additionalCost,
-                    claim,
+                    claim?.WeightKg ?? 0,
+                    claim?.RatePerKg ?? 0,
+                    importedClaimAmount,
                     0, 0,
                     $"{ImportTag} {Path.GetFileName(path)} / {sheet.Name} / baris {row}",
-                    compact ? OutputLayout.CompactInvoice : OutputLayout.CompleteInvoice);
+                    compact
+                        ? OutputLayout.MigunoLike
+                        : hasClaimSheets || (originColumn == 0 && destinationColumn == 0 && totalColumn == 0)
+                            ? OutputLayout.AgricoLike
+                            : OutputLayout.SumberPanganLike);
                 ImportHaul(SourceKey(path, sheet.Name, row, "invoice"), path, sheet.Name, row, draft, preferIncomingInvoiceFields: true);
             }
         }
@@ -238,9 +246,9 @@ public sealed class LegacyWorkbookImporter
         TrackDate(incoming.Date);
     }
 
-    private static Dictionary<string, decimal> ReadClaims(XLWorkbook workbook)
+    private static Dictionary<string, ClaimDetail> ReadClaims(XLWorkbook workbook)
     {
-        var claims = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+        var claims = new Dictionary<string, ClaimDetail>(StringComparer.OrdinalIgnoreCase);
         foreach (var sheet in workbook.Worksheets.Where(item => item.Name.StartsWith("KLAIM", StringComparison.OrdinalIgnoreCase)))
         {
             var headerRow = FindHeaderRow(sheet);
@@ -252,6 +260,8 @@ public sealed class LegacyWorkbookImporter
             var dateColumn = FindColumn(sheet, headerRow, lastColumn, value => value is "TGL" or "TANGGAL");
             var plateColumn = FindColumn(sheet, headerRow, lastColumn, value => value == "NOPOL");
             var weightColumns = FindColumns(sheet, headerRow, lastColumn, value => value.StartsWith("BERAT", StringComparison.Ordinal));
+            var claimWeightColumn = FindColumn(sheet, headerRow, lastColumn, value => value == "KLAIM");
+            var claimRateColumn = FindColumn(sheet, headerRow, lastColumn, value => value == "HARGA");
             var amountColumn = FindColumn(sheet, headerRow, lastColumn, value => value == "JUMLAH");
             if (dateColumn == 0 || plateColumn == 0 || weightColumns.Count < 2 || amountColumn == 0)
             {
@@ -271,7 +281,10 @@ public sealed class LegacyWorkbookImporter
                         date.Value,
                         Text(sheet.Cell(row, plateColumn)),
                         Number(sheet.Cell(row, weightColumns[0])),
-                        Number(sheet.Cell(row, weightColumns[1])))] = Number(sheet.Cell(row, amountColumn));
+                        Number(sheet.Cell(row, weightColumns[1])))] = new ClaimDetail(
+                            claimWeightColumn > 0 ? Number(sheet.Cell(row, claimWeightColumn)) : 0,
+                            claimRateColumn > 0 ? Number(sheet.Cell(row, claimRateColumn)) : 0,
+                            Number(sheet.Cell(row, amountColumn)));
                 }
             }
         }
@@ -436,4 +449,6 @@ public sealed class LegacyWorkbookImporter
             _latestDate = date;
         }
     }
+
+    private sealed record ClaimDetail(decimal WeightKg, decimal RatePerKg, decimal Amount);
 }

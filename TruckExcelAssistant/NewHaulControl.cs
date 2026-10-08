@@ -18,6 +18,8 @@ public sealed class NewHaulControl : UserControl
     private readonly TextBox _grossAmount = new();
     private readonly TextBox _bonSangu = new();
     private readonly TextBox _rejectionCost = new();
+    private readonly TextBox _claimWeight = new();
+    private readonly TextBox _claimRate = new();
     private readonly TextBox _claimAmount = new();
     private readonly TextBox _driverRoadMoney = new();
     private readonly TextBox _otherExpense = new();
@@ -26,6 +28,8 @@ public sealed class NewHaulControl : UserControl
     private readonly Panel _customerField = new();
     private readonly Panel _bonSanguField = new();
     private readonly Panel _rejectionCostField = new();
+    private readonly Panel _claimWeightField = new();
+    private readonly Panel _claimRateField = new();
     private readonly Panel _claimField = new();
     private readonly Panel _driverRoadMoneyField = new();
     private readonly Panel _otherExpenseField = new();
@@ -46,7 +50,7 @@ public sealed class NewHaulControl : UserControl
     private readonly Button _saveButton = AppTheme.CreatePrimaryButton("Simpan angkutan");
     private readonly Button _cancelEditButton = AppTheme.CreateSecondaryButton("Batal mengedit");
 
-    private OutputLayout _layout = OutputLayout.CompleteInvoice;
+    private OutputLayout _layout = OutputLayout.SumberPanganLike;
     private long? _editingId;
 
     public NewHaulControl(DatabaseService database)
@@ -62,7 +66,7 @@ public sealed class NewHaulControl : UserControl
         BuildLayout();
         WireEvents();
         RefreshSuggestions();
-        SetLayout(OutputLayout.CompleteInvoice);
+        SetLayout(OutputLayout.SumberPanganLike);
         Recalculate();
     }
 
@@ -89,7 +93,9 @@ public sealed class NewHaulControl : UserControl
         SetNumericValue(_rate, draft.RatePerKg);
         SetNumericValue(_bonSangu, draft.BonSangu);
         SetNumericValue(_rejectionCost, draft.RejectionCost);
-        SetNumericValue(_claimAmount, draft.ClaimAmount);
+        SetNumericValue(_claimWeight, draft.ClaimWeightKg);
+        SetNumericValue(_claimRate, draft.ClaimRatePerKg);
+        SetNumericValue(_claimAmount, draft.EffectiveClaimAmount);
         SetNumericValue(_driverRoadMoney, draft.DriverRoadMoney);
         SetNumericValue(_otherExpense, draft.OtherExpense);
         _notes.Text = draft.Notes;
@@ -149,6 +155,13 @@ public sealed class NewHaulControl : UserControl
         _grossAmount.ReadOnly = true;
         _grossAmount.BackColor = Color.FromArgb(242, 245, 248);
         _grossAmount.TabStop = false;
+
+        ConfigureTextBox(_claimAmount);
+        _claimAmount.TextAlign = HorizontalAlignment.Right;
+        _claimAmount.Text = "0";
+        _claimAmount.ReadOnly = true;
+        _claimAmount.BackColor = Color.FromArgb(242, 245, 248);
+        _claimAmount.TabStop = false;
 
         ConfigureTextBox(_notes);
         _notes.PlaceholderText = "Catatan perjalanan atau biaya";
@@ -230,9 +243,10 @@ public sealed class NewHaulControl : UserControl
             Margin = new Padding(0, 2, 0, 0),
             Padding = Padding.Empty
         };
-        AddLayoutButton(layouts, OutputLayout.TruckLedger, "Pembukuan", 118);
-        AddLayoutButton(layouts, OutputLayout.CompactInvoice, "Invoice ringkas", 138);
-        AddLayoutButton(layouts, OutputLayout.CompleteInvoice, "Invoice lengkap", 142);
+        AddLayoutButton(layouts, OutputLayout.TruckLedger, "Pembukuan", 112);
+        AddLayoutButton(layouts, OutputLayout.MigunoLike, "Mirip Miguno", 120);
+        AddLayoutButton(layouts, OutputLayout.AgricoLike, "Mirip Agrico", 115);
+        AddLayoutButton(layouts, OutputLayout.SumberPanganLike, "Mirip Sumber Pangan", 165);
 
         heading.Controls.Add(titles, 0, 0);
         heading.Controls.Add(layouts, 1, 0);
@@ -328,7 +342,7 @@ public sealed class NewHaulControl : UserControl
 
     private Control BuildAdjustmentsSection()
     {
-        ConfigureFieldGrid(_adjustmentGrid, 2);
+        ConfigureFieldGrid(_adjustmentGrid, 3);
 
         ConfigureFieldContainer(_bonSanguField);
         _bonSanguField.Controls.Add(CreateField("Bon sangu", _bonSangu));
@@ -336,8 +350,14 @@ public sealed class NewHaulControl : UserControl
         ConfigureFieldContainer(_rejectionCostField);
         _rejectionCostField.Controls.Add(CreateField("Penyesuaian baris (+/-)", _rejectionCost));
 
+        ConfigureFieldContainer(_claimWeightField);
+        _claimWeightField.Controls.Add(CreateField("Jumlah klaim (kg)", _claimWeight));
+
+        ConfigureFieldContainer(_claimRateField);
+        _claimRateField.Controls.Add(CreateField("Harga klaim (Rp/kg)", _claimRate));
+
         ConfigureFieldContainer(_claimField);
-        _claimField.Controls.Add(CreateField("Klaim lama (hasil impor)", _claimAmount));
+        _claimField.Controls.Add(CreateField("Total klaim", _claimAmount));
 
         PrepareDynamicField(_driverRoadMoneyField, "Uang jalan sopir", _driverRoadMoney);
         PrepareDynamicField(_otherExpenseField, "Biaya lainnya", _otherExpense);
@@ -521,20 +541,23 @@ public sealed class NewHaulControl : UserControl
 
         _adjustmentLabel.Text = layout switch
         {
-            OutputLayout.CompactInvoice => "Bon sangu",
-            OutputLayout.CompleteInvoice => "Penyesuaian baris",
+            OutputLayout.MigunoLike => "Bon sangu",
+            OutputLayout.AgricoLike => "Klaim",
+            OutputLayout.SumberPanganLike => "Penyesuaian baris",
             _ => "Uang jalan / biaya"
         };
         _finalLabel.Text = layout switch
         {
             OutputLayout.TruckLedger => "Perkiraan bersih",
-            OutputLayout.CompleteInvoice => "Total baris",
+            OutputLayout.AgricoLike => "Total setelah klaim",
+            OutputLayout.SumberPanganLike => "Total baris",
             _ => "Total invoice"
         };
         _calculationNote.Text = layout switch
         {
-            OutputLayout.CompactInvoice => "Layout invoice ringkas: jumlah angkutan dikurangi bon sangu. Customer dipilih secara terpisah.",
-            OutputLayout.CompleteInvoice => "Gunakan nilai positif untuk tambahan dan negatif untuk potongan. Klaim akhir diisi saat membuat invoice.",
+            OutputLayout.MigunoLike => "Mirip Miguno: jumlah angkutan dikurangi bon sangu.",
+            OutputLayout.AgricoLike => "Mirip Agrico: jumlah klaim dan harga per kg disimpan untuk lembar KLAIM terpisah.",
+            OutputLayout.SumberPanganLike => "Mirip Sumber Pangan: gunakan nilai positif untuk tambahan dan negatif untuk potongan. Klaim akhir diisi saat membuat invoice.",
             _ => "Pembukuan: pemasukan angkutan dikurangi uang jalan sopir dan biaya lainnya."
         };
 
@@ -548,12 +571,19 @@ public sealed class NewHaulControl : UserControl
 
         switch (layout)
         {
-            case OutputLayout.CompactInvoice:
+            case OutputLayout.MigunoLike:
                 AddExistingField(_adjustmentGrid, _bonSanguField, 0, 0, 2);
                 AddExistingField(_adjustmentGrid, _driverRoadMoneyField, 2, 0);
                 AddExistingField(_adjustmentGrid, _otherExpenseField, 3, 0);
                 break;
-            case OutputLayout.CompleteInvoice:
+            case OutputLayout.AgricoLike:
+                AddExistingField(_adjustmentGrid, _claimWeightField, 0, 0);
+                AddExistingField(_adjustmentGrid, _claimRateField, 1, 0);
+                AddExistingField(_adjustmentGrid, _claimField, 2, 0, 2);
+                AddExistingField(_adjustmentGrid, _driverRoadMoneyField, 0, 1, 2);
+                AddExistingField(_adjustmentGrid, _otherExpenseField, 2, 1, 2);
+                break;
+            case OutputLayout.SumberPanganLike:
                 AddExistingField(_adjustmentGrid, _rejectionCostField, 0, 0, 2);
                 AddExistingField(_adjustmentGrid, _driverRoadMoneyField, 2, 0);
                 AddExistingField(_adjustmentGrid, _otherExpenseField, 3, 0);
@@ -564,7 +594,7 @@ public sealed class NewHaulControl : UserControl
                 break;
         }
 
-        AddExistingField(_adjustmentGrid, _notesField, 0, 1, 4);
+        AddExistingField(_adjustmentGrid, _notesField, 0, layout == OutputLayout.AgricoLike ? 2 : 1, 4);
         _adjustmentGrid.ResumeLayout(true);
     }
 
@@ -572,6 +602,7 @@ public sealed class NewHaulControl : UserControl
     {
         var draft = ReadDraft();
         _grossAmount.Text = IndonesianNumber.Format(draft.GrossAmount);
+        _claimAmount.Text = IndonesianNumber.Format(draft.EffectiveClaimAmount);
 
         _differenceValue.Text = $"{IndonesianNumber.Format(draft.WeightDifferenceKg)} kg";
         _differenceValue.ForeColor = draft.WeightDifferenceKg > 0 ? AppTheme.Warning : AppTheme.TextPrimary;
@@ -579,8 +610,9 @@ public sealed class NewHaulControl : UserControl
 
         var adjustment = _layout switch
         {
-            OutputLayout.CompactInvoice => -draft.BonSangu,
-            OutputLayout.CompleteInvoice => draft.RejectionCost,
+            OutputLayout.MigunoLike => -draft.BonSangu,
+            OutputLayout.AgricoLike => -draft.EffectiveClaimAmount,
+            OutputLayout.SumberPanganLike => draft.RejectionCost,
             _ => -(draft.DriverRoadMoney + draft.OtherExpense)
         };
         _adjustmentValue.Text = IndonesianNumber.Rupiah(adjustment);
@@ -602,6 +634,8 @@ public sealed class NewHaulControl : UserControl
             ReadNumber(_rate),
             ReadNumber(_bonSangu),
             ReadNumber(_rejectionCost),
+            ReadNumber(_claimWeight),
+            ReadNumber(_claimRate),
             ReadNumber(_claimAmount),
             ReadNumber(_driverRoadMoney),
             ReadNumber(_otherExpense),
@@ -631,8 +665,9 @@ public sealed class NewHaulControl : UserControl
             IndonesianNumber.Rupiah(draft.GrossAmount),
             IndonesianNumber.Rupiah(_layout switch
             {
-                OutputLayout.CompactInvoice => -draft.BonSangu,
-                OutputLayout.CompleteInvoice => draft.RejectionCost,
+                OutputLayout.MigunoLike => -draft.BonSangu,
+                OutputLayout.AgricoLike => -draft.EffectiveClaimAmount,
+                OutputLayout.SumberPanganLike => draft.RejectionCost,
                 _ => -(draft.DriverRoadMoney + draft.OtherExpense)
             }),
             IndonesianNumber.Rupiah(draft.FinalAmount));
@@ -646,7 +681,17 @@ public sealed class NewHaulControl : UserControl
 
         isValid &= RequireText(_licencePlate, "Nomor polisi wajib diisi.");
         isValid &= RequireText(_cargo, "Jenis muatan wajib diisi.");
-        isValid &= RequireText(_customer, "Customer wajib diisi.");
+        if (draft.Layout != OutputLayout.TruckLedger)
+        {
+            isValid &= RequireText(_customer, "Customer wajib diisi untuk layout invoice.");
+        }
+        isValid &= RequireText(_origin, "Lokasi Dari wajib diisi.");
+        isValid &= RequireText(_destination, "Lokasi Ke wajib diisi.");
+        if (draft.Layout != OutputLayout.TruckLedger && draft.LoadedWeightKg <= 0)
+        {
+            _errors.SetError(_loadedWeight, "Berat muat harus lebih dari nol untuk layout invoice.");
+            isValid = false;
+        }
         if (draft.ReceivedWeightKg <= 0)
         {
             _errors.SetError(_receivedWeight, "Berat diterima harus lebih dari nol.");
@@ -655,6 +700,15 @@ public sealed class NewHaulControl : UserControl
         if (draft.RatePerKg <= 0)
         {
             _errors.SetError(_rate, "Ongkos harus lebih dari nol.");
+            isValid = false;
+        }
+        if (draft.Layout == OutputLayout.AgricoLike
+            && (draft.ClaimWeightKg > 0 || draft.ClaimRatePerKg > 0)
+            && (draft.ClaimWeightKg <= 0 || draft.ClaimRatePerKg <= 0))
+        {
+            _errors.SetError(
+                draft.ClaimWeightKg <= 0 ? _claimWeight : _claimRate,
+                "Jumlah klaim dan harga klaim harus diisi bersama.");
             isValid = false;
         }
 
@@ -718,6 +772,7 @@ public sealed class NewHaulControl : UserControl
         {
             textBox.Text = "0";
         }
+        _claimAmount.Text = "0";
         _notes.Clear();
         _licencePlate.Focus();
     }
@@ -735,8 +790,9 @@ public sealed class NewHaulControl : UserControl
         {
             textBox.Text = "0";
         }
+        _claimAmount.Text = "0";
         _notes.Clear();
-        SetLayout(OutputLayout.CompleteInvoice);
+        SetLayout(OutputLayout.SumberPanganLike);
         _licencePlate.Focus();
     }
 
@@ -818,7 +874,8 @@ public sealed class NewHaulControl : UserControl
         yield return _rate;
         yield return _bonSangu;
         yield return _rejectionCost;
-        yield return _claimAmount;
+        yield return _claimWeight;
+        yield return _claimRate;
         yield return _driverRoadMoney;
         yield return _otherExpense;
     }

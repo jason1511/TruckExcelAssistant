@@ -286,6 +286,15 @@ public sealed class InvoiceHistoryControl : UserControl
 
     private void Regenerate(InvoiceRecord invoice)
     {
+        if (invoice.Layout == OutputLayout.AgricoLike)
+        {
+            MessageBox.Show(
+                "Pembuatan ulang Mirip Agrico akan tersedia pada tahap template Excel berikutnya.",
+                "Template belum tersedia",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+            return;
+        }
         var hauls = _database.GetInvoiceHauls(invoice.Id);
         if (hauls.Count == 0)
         {
@@ -317,7 +326,7 @@ public sealed class InvoiceHistoryControl : UserControl
         }
         try
         {
-            if (invoice.Layout == OutputLayout.CompactInvoice)
+            if (invoice.Layout == OutputLayout.MigunoLike)
             {
                 _exporter.ExportCompactInvoice(hauls, invoice.Customer, invoice.InvoiceNumber, invoice.InvoiceDate, dialog.FileName, settings);
             }
@@ -396,9 +405,7 @@ public sealed class InvoiceHistoryControl : UserControl
         panel.Controls.Add(button, column, 0);
     }
 
-    private static string LayoutText(OutputLayout layout) => layout == OutputLayout.CompactInvoice
-        ? "Ringkas"
-        : "Lengkap";
+    private static string LayoutText(OutputLayout layout) => layout.DisplayName();
 
     private static string StatusText(InvoiceStatus status) => status switch
     {

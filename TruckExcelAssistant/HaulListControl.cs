@@ -61,6 +61,7 @@ public sealed class HaulListControl : UserControl
                 $"{IndonesianNumber.Format(draft.ReceivedWeightKg)} kg",
                 IndonesianNumber.Rupiah(draft.RatePerKg),
                 IndonesianNumber.Rupiah(draft.GrossAmount),
+                draft.Layout.DisplayName(),
                 record.DeletedAt is not null
                     ? "Sampah"
                     : record.Status == HaulStatus.Draft ? "Draft" : "Tersimpan");
@@ -226,6 +227,7 @@ public sealed class HaulListControl : UserControl
         _grid.Columns.Add("Weight", "Berat diterima");
         _grid.Columns.Add("Rate", "Ongkos");
         _grid.Columns.Add("Gross", "Jumlah");
+        _grid.Columns.Add("Layout", "Format");
         _grid.Columns.Add("Status", "Status");
         _grid.Columns[0].Visible = false;
     }

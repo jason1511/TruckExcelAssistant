@@ -12,6 +12,8 @@ public sealed record HaulDraft(
     decimal RatePerKg,
     decimal BonSangu,
     decimal RejectionCost,
+    decimal ClaimWeightKg,
+    decimal ClaimRatePerKg,
     decimal ClaimAmount,
     decimal DriverRoadMoney,
     decimal OtherExpense,
@@ -22,10 +24,17 @@ public sealed record HaulDraft(
 
     public decimal GrossAmount => ReceivedWeightKg * RatePerKg;
 
+    public decimal CalculatedClaimAmount => ClaimWeightKg * ClaimRatePerKg;
+
+    public decimal EffectiveClaimAmount => CalculatedClaimAmount > 0
+        ? CalculatedClaimAmount
+        : ClaimAmount;
+
     public decimal FinalAmount => Layout switch
     {
-        OutputLayout.CompactInvoice => GrossAmount - BonSangu,
-        OutputLayout.CompleteInvoice => GrossAmount + RejectionCost,
+        OutputLayout.MigunoLike => GrossAmount - BonSangu,
+        OutputLayout.AgricoLike => GrossAmount - EffectiveClaimAmount,
+        OutputLayout.SumberPanganLike => GrossAmount + RejectionCost,
         _ => GrossAmount - DriverRoadMoney - OtherExpense
     };
 }

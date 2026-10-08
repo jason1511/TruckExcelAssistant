@@ -58,7 +58,7 @@ public sealed class SettingsControl : UserControl
         _signerName.Text = settings.SignerName;
         _invoicePrefix.Text = settings.InvoicePrefix;
         _sequenceDigits.Value = settings.InvoiceSequenceDigits;
-        _defaultLayout.SelectedIndex = settings.DefaultInvoiceLayout == OutputLayout.CompactInvoice ? 0 : 1;
+        _defaultLayout.SelectedIndex = settings.DefaultInvoiceLayout == OutputLayout.MigunoLike ? 0 : 1;
         _exportDirectory.Text = settings.DefaultExportDirectory;
         _saveStatus.Text = string.Empty;
         UpdateImportStatus();
@@ -104,7 +104,7 @@ public sealed class SettingsControl : UserControl
         _sequenceDigits.Maximum = 6;
         _sequenceDigits.TextAlign = HorizontalAlignment.Right;
         _defaultLayout.DropDownStyle = ComboBoxStyle.DropDownList;
-        _defaultLayout.Items.AddRange(["Invoice ringkas", "Invoice lengkap"]);
+        _defaultLayout.Items.AddRange(["Mirip Miguno", "Mirip Sumber Pangan"]);
         _defaultLayout.SelectedIndex = 1;
         _exportDirectory.PlaceholderText = "Kosongkan untuk memakai folder Exports di samping aplikasi";
     }
@@ -273,7 +273,7 @@ public sealed class SettingsControl : UserControl
         panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150F));
         panel.Controls.Add(new Label
         {
-            Text = "Impor file dengan format seperti tiga contoh awal. Jenis layout dikenali otomatis dan baris yang sama tidak dibuat dua kali.",
+            Text = "Impor file dengan format seperti empat contoh awal. Jenis layout dikenali otomatis dan baris yang sama tidak dibuat dua kali.",
             Dock = DockStyle.Fill,
             ForeColor = AppTheme.TextSecondary,
             TextAlign = ContentAlignment.MiddleLeft,
@@ -370,8 +370,8 @@ public sealed class SettingsControl : UserControl
         }
 
         var layout = _defaultLayout.SelectedIndex == 0
-            ? OutputLayout.CompactInvoice
-            : OutputLayout.CompleteInvoice;
+            ? OutputLayout.MigunoLike
+            : OutputLayout.SumberPanganLike;
         _database.SaveSettings(new AppSettings(
             _companyName.Text,
             _companyAddress.Text,

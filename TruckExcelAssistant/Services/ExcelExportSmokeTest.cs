@@ -20,7 +20,7 @@ internal static class ExcelExportSmokeTest
             var settings = new AppSettings(
                 "PT TEST TRANSPORT", "Jl. Contoh 1", "Lumajang", "BCA", "1234567890",
                 "PT TEST TRANSPORT", "TEST SIGNER", "TJ", 3,
-                OutputLayout.CompleteInvoice, directory);
+                OutputLayout.SumberPanganLike, directory);
 
             exporter.ExportCompactInvoice(records, "PT CONTOH CUSTOMER", "TJ-20260903-001", DateTime.Today, compact, settings);
             exporter.ExportCompleteInvoice(records, "PT CONTOH CUSTOMER", "TJ-20260903-002", DateTime.Today, complete, settings);
@@ -51,7 +51,7 @@ internal static class ExcelExportSmokeTest
                 || sheet.Cell("K4").GetDouble() != 12_521_250
                 || sheet.Cell("K18").GetDouble() != 25_000)
             {
-                throw new InvalidOperationException("Invoice lengkap tidak menggunakan kolom Dari dan Ke dengan benar.");
+                throw new InvalidOperationException("Mirip Sumber Pangan tidak menggunakan kolom Dari dan Ke dengan benar.");
             }
         }
 
@@ -72,6 +72,11 @@ internal static class ExcelExportSmokeTest
     {
         var database = new DatabaseService(Path.Combine(directory, "smoke-test.db"));
         database.Initialize();
+        if (OutputLayoutNames.ParseInvoiceSetting("CompactInvoice", OutputLayout.SumberPanganLike) != OutputLayout.MigunoLike
+            || OutputLayoutNames.ParseInvoiceSetting("CompleteInvoice", OutputLayout.MigunoLike) != OutputLayout.SumberPanganLike)
+        {
+            throw new InvalidOperationException("Nama layout lama tidak dimigrasikan dengan benar.");
+        }
         var date = new DateTime(2026, 9, 3);
         if (database.GetNextInvoiceNumber(date) != "TJ-20260903-001")
         {
@@ -81,7 +86,7 @@ internal static class ExcelExportSmokeTest
             "TJ-20260903-001",
             date,
             "PT CONTOH CUSTOMER",
-            OutputLayout.CompleteInvoice,
+            OutputLayout.SumberPanganLike,
             12_500_000,
             invoicePath,
             [],
@@ -105,10 +110,10 @@ internal static class ExcelExportSmokeTest
         database.SaveSettings(new AppSettings(
             "PT TEST TRANSPORT", "Jl. Contoh 1", "Jember", "BCA", "1234567890",
             "PT TEST TRANSPORT", "TEST SIGNER", "TJ", 4,
-            OutputLayout.CompactInvoice, directory));
+            OutputLayout.MigunoLike, directory));
         var settings = database.GetSettings();
         if (settings.CompanyName != "PT TEST TRANSPORT"
-            || settings.DefaultInvoiceLayout != OutputLayout.CompactInvoice
+            || settings.DefaultInvoiceLayout != OutputLayout.MigunoLike
             || database.GetNextInvoiceNumber(date) != "TJ-20260903-0002")
         {
             throw new InvalidOperationException("Pengaturan invoice tidak tersimpan atau diterapkan.");
@@ -146,6 +151,26 @@ internal static class ExcelExportSmokeTest
             || dashboard.RecentInvoices.Count != 1)
         {
             throw new InvalidOperationException("Ringkasan bulanan tidak menghitung data dengan benar.");
+        }
+        var agricoDraft = SampleRecords()[0].Draft with
+        {
+            LicencePlate = "N-AGRICO-01",
+            Customer = "PT AGRICO TEST",
+            ClaimWeightKg = 107,
+            ClaimRatePerKg = 6_950,
+            ClaimAmount = 0,
+            RejectionCost = 0,
+            Layout = OutputLayout.AgricoLike
+        };
+        var agricoId = database.AddHaul(agricoDraft, HaulStatus.Saved);
+        var agrico = database.GetHaul(agricoId)?.Draft;
+        if (agrico is null
+            || agrico.Layout != OutputLayout.AgricoLike
+            || agrico.ClaimWeightKg != 107
+            || agrico.ClaimRatePerKg != 6_950
+            || agrico.EffectiveClaimAmount != 743_650)
+        {
+            throw new InvalidOperationException("Data entry Mirip Agrico tidak tersimpan atau dihitung dengan benar.");
         }
         VerifyLegacyImport(database, directory);
     }
@@ -239,7 +264,7 @@ internal static class ExcelExportSmokeTest
         var demo = new DemoDataSeeder(database, new ExcelExportService());
         demo.Seed();
         if (!database.HasDemoData()
-            || database.CountHauls() != 14
+            || database.CountHauls() != 15
             || database.GetExpenses().Count != 8
             || database.GetInvoices().Count != 3
             || database.GetInvoices(status: InvoiceStatus.Generated).Count != 1)
@@ -248,7 +273,7 @@ internal static class ExcelExportSmokeTest
         }
         demo.Remove();
         if (database.HasDemoData()
-            || database.CountHauls() != 2
+            || database.CountHauls() != 3
             || database.GetExpenses().Count != 2
             || database.GetInvoices().Count != 1)
         {
@@ -263,12 +288,12 @@ internal static class ExcelExportSmokeTest
         [
             new HaulRecord(1, new HaulDraft(
                 new DateTime(2026, 9, 1), "N-TEST-01", "Jagung", "PT CONTOH CUSTOMER",
-                "Jember", "Cirebon", 45_500, 45_350, 275, 100_000, 50_000, 25_000,
-                4_000_000, 250_000, "Biaya tol", OutputLayout.CompleteInvoice),
+                "Jember", "Cirebon", 45_500, 45_350, 275, 100_000, 50_000, 0, 0, 25_000,
+                4_000_000, 250_000, "Biaya tol", OutputLayout.SumberPanganLike),
                 HaulStatus.Saved, now, now, null),
             new HaulRecord(2, new HaulDraft(
                 new DateTime(2026, 9, 2), "N-TEST-01", "SBM", "PT CONTOH CUSTOMER",
-                "Surabaya", "Semarang", 44_000, 43_900, 145, 0, 0, 0,
+                "Surabaya", "Semarang", 44_000, 43_900, 145, 0, 0, 0, 0, 0,
                 3_000_000, 100_000, "", OutputLayout.TruckLedger),
                 HaulStatus.Saved, now, now, null)
         ];

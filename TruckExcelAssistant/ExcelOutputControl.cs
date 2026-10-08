@@ -112,7 +112,7 @@ public sealed class ExcelOutputControl : UserControl
             return;
         }
         var settings = _database.GetSettings();
-        _layout.SelectedIndex = settings.DefaultInvoiceLayout == OutputLayout.CompactInvoice ? 0 : 1;
+        _layout.SelectedIndex = settings.DefaultInvoiceLayout == OutputLayout.MigunoLike ? 0 : 1;
         UpdateAutomaticInvoiceNumber();
     }
 
@@ -135,7 +135,7 @@ public sealed class ExcelOutputControl : UserControl
         _subject.MaxDropDownItems = 12;
 
         _layout.DropDownStyle = ComboBoxStyle.DropDownList;
-        _layout.Items.AddRange(["Invoice ringkas (maks. 19 baris)", "Invoice lengkap (maks. 13 baris)"]);
+        _layout.Items.AddRange(["Mirip Miguno (maks. 19 baris)", "Mirip Sumber Pangan (maks. 13 baris)"]);
         _layout.SelectedIndex = 1;
         _invoiceNumber.ReadOnly = true;
         _invoiceNumber.BackColor = Color.FromArgb(242, 245, 248);
@@ -430,13 +430,13 @@ public sealed class ExcelOutputControl : UserControl
             else if (_layout.SelectedIndex == 0)
             {
                 _exporter.ExportCompactInvoice(selected, _subject.Text, _invoiceNumber.Text, _issueDate.Value, dialog.FileName, settings);
-                RecordInvoice(selected, OutputLayout.CompactInvoice, dialog.FileName);
+                RecordInvoice(selected, OutputLayout.MigunoLike, dialog.FileName);
             }
             else
             {
                 var claim = ReadMoney(_invoiceClaim);
                 _exporter.ExportCompleteInvoice(selected, _subject.Text, _invoiceNumber.Text, _issueDate.Value, dialog.FileName, settings, claim);
-                RecordInvoice(selected, OutputLayout.CompleteInvoice, dialog.FileName, claim);
+                RecordInvoice(selected, OutputLayout.SumberPanganLike, dialog.FileName, claim);
             }
 
             var result = MessageBox.Show(
@@ -471,7 +471,7 @@ public sealed class ExcelOutputControl : UserControl
 
     private void RecordInvoice(IReadOnlyList<HaulRecord> selected, OutputLayout layout, string filePath, decimal claimAmount = 0)
     {
-        var total = layout == OutputLayout.CompactInvoice
+        var total = layout == OutputLayout.MigunoLike
             ? selected.Sum(item => item.Draft.GrossAmount - item.Draft.BonSangu)
             : selected.Sum(item => item.Draft.GrossAmount + item.Draft.RejectionCost) - claimAmount;
         _database.RecordGeneratedInvoice(

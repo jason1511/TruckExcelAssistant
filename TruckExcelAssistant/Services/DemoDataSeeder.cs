@@ -49,18 +49,18 @@ public sealed class DemoDataSeeder
 
         var drafts = new[]
         {
-            Draft(Day(1), "N 1001 XX", "Jagung", "PT Pangan Contoh", "Surabaya", "Semarang", 45_600, 45_350, 315, 2_900_000, 250_000, OutputLayout.CompleteInvoice),
-            Draft(Day(2), "N 1002 YY", "Jagung", "PT Pangan Contoh", "Surabaya", "Solo", 46_100, 45_920, 315, 2_700_000, 180_000, OutputLayout.CompleteInvoice),
-            Draft(Day(3), "N 1003 ZZ", "Jagung", "PT Pangan Contoh", "Gresik", "Kediri", 44_850, 44_700, 285, 2_500_000, 150_000, OutputLayout.CompleteInvoice, rejection: 200_000),
-            Draft(Day(4), "P 2001 AA", "Jagung", "PT Pangan Contoh", "Jember", "Cirebon", 47_200, 46_650, 300, 3_200_000, 300_000, OutputLayout.CompleteInvoice, claim: 650_000),
-            Draft(Day(5), "N 1001 XX", "SBM", "CV Logistik Demo", "Teluk Lamong", "Semarang", 44_300, 44_050, 145, 3_050_000, 125_000, OutputLayout.CompactInvoice, bon: 300_000),
-            Draft(Day(6), "N 1002 YY", "SBM", "CV Logistik Demo", "Teluk Lamong", "Grobogan", 45_100, 44_900, 145, 3_100_000, 175_000, OutputLayout.CompactInvoice),
-            Draft(Day(7), "N 1003 ZZ", "Tepung", "CV Logistik Demo", "Jakarta", "Pasuruan", 40_200, 40_000, 275, 5_500_000, 200_000, OutputLayout.CompactInvoice, bon: 250_000),
-            Draft(Day(8), "P 2001 AA", "Pasir", "CV Logistik Demo", "Lumajang", "Balaraja", 45_250, 45_000, 310, 6_700_000, 225_000, OutputLayout.CompactInvoice),
+            Draft(Day(1), "N 1001 XX", "Jagung", "PT Pangan Contoh", "Surabaya", "Semarang", 45_600, 45_350, 315, 2_900_000, 250_000, OutputLayout.SumberPanganLike),
+            Draft(Day(2), "N 1002 YY", "Jagung", "PT Pangan Contoh", "Surabaya", "Solo", 46_100, 45_920, 315, 2_700_000, 180_000, OutputLayout.SumberPanganLike),
+            Draft(Day(3), "N 1003 ZZ", "Jagung", "PT Pangan Contoh", "Gresik", "Kediri", 44_850, 44_700, 285, 2_500_000, 150_000, OutputLayout.SumberPanganLike, rejection: 200_000),
+            Draft(Day(4), "P 2001 AA", "Jagung", "PT Pangan Contoh", "Jember", "Cirebon", 47_200, 46_650, 300, 3_200_000, 300_000, OutputLayout.SumberPanganLike, claim: 650_000),
+            Draft(Day(5), "N 1001 XX", "SBM", "CV Logistik Demo", "Teluk Lamong", "Semarang", 44_300, 44_050, 145, 3_050_000, 125_000, OutputLayout.MigunoLike, bon: 300_000),
+            Draft(Day(6), "N 1002 YY", "SBM", "CV Logistik Demo", "Teluk Lamong", "Grobogan", 45_100, 44_900, 145, 3_100_000, 175_000, OutputLayout.MigunoLike),
+            Draft(Day(7), "N 1003 ZZ", "Tepung", "CV Logistik Demo", "Jakarta", "Pasuruan", 40_200, 40_000, 275, 5_500_000, 200_000, OutputLayout.MigunoLike, bon: 250_000),
+            Draft(Day(8), "P 2001 AA", "Pasir", "CV Logistik Demo", "Lumajang", "Balaraja", 45_250, 45_000, 310, 6_700_000, 225_000, OutputLayout.MigunoLike),
             Draft(Day(9), "N 1001 XX", "Pupuk", "PT Pakan Uji", "Gresik", "Jatiroto", 45_100, 45_000, 90, 2_200_000, 100_000, OutputLayout.TruckLedger),
             Draft(Day(10), "N 1002 YY", "Dedak", "PT Pakan Uji", "Probolinggo", "Madiun", 26_400, 26_150, 250, 1_900_000, 150_000, OutputLayout.TruckLedger),
-            Draft(Day(11), "N 1003 ZZ", "Jagung", "PT Pakan Uji", "Jember", "Surabaya", 46_300, 46_100, 95, 2_000_000, 125_000, OutputLayout.TruckLedger),
-            Draft(Day(12), "P 2001 AA", "SBM", "PT Pakan Uji", "Teluk Lamong", "Batang", 40_100, 39_880, 165, 3_300_000, 175_000, OutputLayout.TruckLedger)
+            Draft(Day(11), "N 1003 ZZ", "Jagung", "PT Agrico Contoh", "Jember", "Surabaya", 46_300, 46_100, 315, 2_000_000, 125_000, OutputLayout.AgricoLike, claimWeight: 75, claimRate: 6_750),
+            Draft(Day(12), "P 2001 AA", "Jagung", "PT Agrico Contoh", "Jember", "Gresik", 46_100, 45_880, 315, 3_300_000, 175_000, OutputLayout.AgricoLike, claimWeight: 90, claimRate: 6_750)
         };
 
         var records = new List<HaulRecord>();
@@ -84,8 +84,8 @@ public sealed class DemoDataSeeder
             : _exporter.ExportDirectory;
         var directory = Path.Combine(baseDirectory, "DataContoh");
         Directory.CreateDirectory(directory);
-        CreateInvoice(records, "PT Pangan Contoh", today, directory, settings, OutputLayout.CompleteInvoice, markPaid: true);
-        CreateInvoice(records, "CV Logistik Demo", today, directory, settings, OutputLayout.CompactInvoice, markPaid: false);
+        CreateInvoice(records, "PT Pangan Contoh", today, directory, settings, OutputLayout.SumberPanganLike, markPaid: true);
+        CreateInvoice(records, "CV Logistik Demo", today, directory, settings, OutputLayout.MigunoLike, markPaid: false);
     }
 
     private void AddExpense(DateTime date, string plate, string category, string description, decimal amount) =>
@@ -103,7 +103,7 @@ public sealed class DemoDataSeeder
         var hauls = records.Where(item => item.Draft.Customer == customer).ToList();
         var number = _database.GetNextInvoiceNumber(date);
         var path = Path.Combine(directory, $"Invoice-{number}.xlsx");
-        if (layout == OutputLayout.CompactInvoice)
+        if (layout == OutputLayout.MigunoLike)
         {
             _exporter.ExportCompactInvoice(hauls, customer, number, date, path, settings);
         }
@@ -111,7 +111,7 @@ public sealed class DemoDataSeeder
         {
             _exporter.ExportCompleteInvoice(hauls, customer, number, date, path, settings);
         }
-        var claimAmount = layout == OutputLayout.CompleteInvoice
+        var claimAmount = layout == OutputLayout.SumberPanganLike
             ? hauls.Sum(item => item.Draft.ClaimAmount)
             : 0;
         _database.RecordGeneratedInvoice(
@@ -142,9 +142,11 @@ public sealed class DemoDataSeeder
         OutputLayout layout,
         decimal bon = 0,
         decimal rejection = 0,
+        decimal claimWeight = 0,
+        decimal claimRate = 0,
         decimal claim = 0) => new(
             date, plate, cargo, customer, origin, destination,
-            loaded, received, rate, bon, rejection, claim,
+            loaded, received, rate, bon, rejection, claimWeight, claimRate, claim,
             roadMoney, otherExpense,
             $"{DemoTag} Data percobaan sintetis",
             layout);

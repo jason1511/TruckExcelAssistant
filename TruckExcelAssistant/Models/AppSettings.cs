@@ -23,6 +23,6 @@ public sealed record AppSettings(
         string.Empty,
         "TJ",
         3,
-        OutputLayout.CompleteInvoice,
+        OutputLayout.SumberPanganLike,
         string.Empty);
 }
