@@ -58,7 +58,12 @@ public sealed class SettingsControl : UserControl
         _signerName.Text = settings.SignerName;
         _invoicePrefix.Text = settings.InvoicePrefix;
         _sequenceDigits.Value = settings.InvoiceSequenceDigits;
-        _defaultLayout.SelectedIndex = settings.DefaultInvoiceLayout == OutputLayout.MigunoLike ? 0 : 1;
+        _defaultLayout.SelectedIndex = settings.DefaultInvoiceLayout switch
+        {
+            OutputLayout.MigunoLike => 0,
+            OutputLayout.AgricoLike => 1,
+            _ => 2
+        };
         _exportDirectory.Text = settings.DefaultExportDirectory;
         _saveStatus.Text = string.Empty;
         UpdateImportStatus();
@@ -104,8 +109,8 @@ public sealed class SettingsControl : UserControl
         _sequenceDigits.Maximum = 6;
         _sequenceDigits.TextAlign = HorizontalAlignment.Right;
         _defaultLayout.DropDownStyle = ComboBoxStyle.DropDownList;
-        _defaultLayout.Items.AddRange(["Mirip Miguno", "Mirip Sumber Pangan"]);
-        _defaultLayout.SelectedIndex = 1;
+        _defaultLayout.Items.AddRange(["Mirip Miguno", "Mirip Agrico", "Mirip Sumber Pangan"]);
+        _defaultLayout.SelectedIndex = 2;
         _exportDirectory.PlaceholderText = "Kosongkan untuk memakai folder Exports di samping aplikasi";
     }
 
@@ -369,9 +374,12 @@ public sealed class SettingsControl : UserControl
             return;
         }
 
-        var layout = _defaultLayout.SelectedIndex == 0
-            ? OutputLayout.MigunoLike
-            : OutputLayout.SumberPanganLike;
+        var layout = _defaultLayout.SelectedIndex switch
+        {
+            0 => OutputLayout.MigunoLike,
+            1 => OutputLayout.AgricoLike,
+            _ => OutputLayout.SumberPanganLike
+        };
         _database.SaveSettings(new AppSettings(
             _companyName.Text,
             _companyAddress.Text,

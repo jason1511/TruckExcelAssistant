@@ -20,10 +20,12 @@ The current phase provides a responsive native WinForms shell, a universal haul-
 - live gross, adjustment, and final calculations;
 - licence-plate normalization;
 - validation for required invoice fields; and
-- an Excel-row preview; and
-- working Excel generation for the current Mirip Miguno, Mirip Sumber Pangan, and Pembukuan layouts.
+- an Excel-row preview;
+- exact customer-like Excel generation for Mirip Miguno, Mirip Agrico, and Mirip Sumber Pangan;
+- a paired `INV` and `KLAIM` workbook for Mirip Agrico; and
+- dynamic Pembukuan and invoice pages when the data exceeds one printed block.
 
-The database is created automatically as `truck_excel_assistant.db`. The next phase is exact template-based Excel generation, including Mirip Agrico and its separate claim sheet.
+The database is created automatically as `truck_excel_assistant.db`. Generated workbooks follow the supplied customer layouts while using the company, bank, signer, customer, and haul data stored in the app.
 
 ## Technology
 

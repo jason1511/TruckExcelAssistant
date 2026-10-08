@@ -112,7 +112,12 @@ public sealed class ExcelOutputControl : UserControl
             return;
         }
         var settings = _database.GetSettings();
-        _layout.SelectedIndex = settings.DefaultInvoiceLayout == OutputLayout.MigunoLike ? 0 : 1;
+        _layout.SelectedIndex = settings.DefaultInvoiceLayout switch
+        {
+            OutputLayout.MigunoLike => 0,
+            OutputLayout.AgricoLike => 1,
+            _ => 2
+        };
         UpdateAutomaticInvoiceNumber();
     }
 
@@ -135,8 +140,8 @@ public sealed class ExcelOutputControl : UserControl
         _subject.MaxDropDownItems = 12;
 
         _layout.DropDownStyle = ComboBoxStyle.DropDownList;
-        _layout.Items.AddRange(["Mirip Miguno (maks. 19 baris)", "Mirip Sumber Pangan (maks. 13 baris)"]);
-        _layout.SelectedIndex = 1;
+        _layout.Items.AddRange(["Mirip Miguno", "Mirip Agrico + KLAIM", "Mirip Sumber Pangan (maks. 13 baris)"]);
+        _layout.SelectedIndex = 2;
         _invoiceNumber.ReadOnly = true;
         _invoiceNumber.BackColor = Color.FromArgb(242, 245, 248);
         _invoiceNumber.TabStop = false;
@@ -427,10 +432,16 @@ public sealed class ExcelOutputControl : UserControl
             {
                 _exporter.ExportTruckLedger(selected, dialog.FileName, _expenses);
             }
-            else if (_layout.SelectedIndex == 0)
+            else if (CurrentLayout() == OutputLayout.MigunoLike)
             {
                 _exporter.ExportCompactInvoice(selected, _subject.Text, _invoiceNumber.Text, _issueDate.Value, dialog.FileName, settings);
                 RecordInvoice(selected, OutputLayout.MigunoLike, dialog.FileName);
+            }
+            else if (CurrentLayout() == OutputLayout.AgricoLike)
+            {
+                _exporter.ExportAgricoInvoice(selected, _subject.Text, _invoiceNumber.Text, _issueDate.Value, dialog.FileName, settings);
+                RecordInvoice(selected, OutputLayout.AgricoLike, dialog.FileName,
+                    selected.Sum(item => item.Draft.EffectiveClaimAmount));
             }
             else
             {
@@ -471,9 +482,12 @@ public sealed class ExcelOutputControl : UserControl
 
     private void RecordInvoice(IReadOnlyList<HaulRecord> selected, OutputLayout layout, string filePath, decimal claimAmount = 0)
     {
-        var total = layout == OutputLayout.MigunoLike
-            ? selected.Sum(item => item.Draft.GrossAmount - item.Draft.BonSangu)
-            : selected.Sum(item => item.Draft.GrossAmount + item.Draft.RejectionCost) - claimAmount;
+        var total = layout switch
+        {
+            OutputLayout.MigunoLike => selected.Sum(item => item.Draft.GrossAmount - item.Draft.BonSangu),
+            OutputLayout.AgricoLike => selected.Sum(item => item.Draft.GrossAmount + item.Draft.RejectionCost) - claimAmount,
+            _ => selected.Sum(item => item.Draft.GrossAmount + item.Draft.RejectionCost) - claimAmount
+        };
         _database.RecordGeneratedInvoice(
             _invoiceNumber.Text,
             _issueDate.Value,
@@ -507,13 +521,15 @@ public sealed class ExcelOutputControl : UserControl
         var selected = _grid.Rows.Cast<DataGridViewRow>().Count(row => Convert.ToBoolean(row.Cells[0].Value ?? false));
         if (_kind == ExcelOutputKind.Invoice)
         {
-            var maximum = _layout.SelectedIndex == 0 ? 19 : 13;
-            _selectionInfo.Text = $"Dipilih {selected} dari maksimal {maximum} baris";
-            _selectionInfo.ForeColor = selected > maximum ? AppTheme.Warning : AppTheme.TextSecondary;
+            var sumberPangan = CurrentLayout() == OutputLayout.SumberPanganLike;
+            _selectionInfo.Text = sumberPangan
+                ? $"Dipilih {selected} dari maksimal 13 baris"
+                : $"Dipilih {selected} baris • halaman Excel ditambah otomatis";
+            _selectionInfo.ForeColor = sumberPangan && selected > 13 ? AppTheme.Warning : AppTheme.TextSecondary;
         }
         else
         {
-            _selectionInfo.Text = $"Dipilih {selected} perjalanan • {_expenses.Count} pengeluaran otomatis • maks. 100 baris per nopol";
+            _selectionInfo.Text = $"Dipilih {selected} perjalanan • {_expenses.Count} pengeluaran otomatis • blok Excel ditambah otomatis";
             _selectionInfo.ForeColor = AppTheme.TextSecondary;
         }
         _exportButton.Enabled = selected > 0 || (_kind == ExcelOutputKind.TruckLedger && _expenses.Count > 0);
@@ -527,10 +543,15 @@ public sealed class ExcelOutputControl : UserControl
             return;
         }
 
-        var compact = _layout.SelectedIndex == 0;
+        var layout = CurrentLayout();
         var adjustmentColumn = _grid.Columns["Adjustment"]
             ?? throw new InvalidOperationException("Kolom penyesuaian tidak tersedia.");
-        adjustmentColumn.HeaderText = compact ? "Bon sangu" : "Penyesuaian baris";
+        adjustmentColumn.HeaderText = layout switch
+        {
+            OutputLayout.MigunoLike => "Bon sangu",
+            OutputLayout.AgricoLike => "Klaim",
+            _ => "Penyesuaian baris"
+        };
         foreach (DataGridViewRow row in _grid.Rows)
         {
             if (row.Tag is not HaulRecord record)
@@ -551,11 +572,22 @@ public sealed class ExcelOutputControl : UserControl
         }
 
         var selected = SelectedRecords();
-        if (_layout.SelectedIndex == 0)
+        var layout = CurrentLayout();
+        if (layout == OutputLayout.MigunoLike)
         {
             SetMoney(_invoiceClaim, 0);
             _invoiceClaim.Enabled = false;
             _invoiceTotal.Text = IndonesianNumber.Format(selected.Sum(item => item.Draft.GrossAmount - item.Draft.BonSangu));
+            return;
+        }
+
+        if (layout == OutputLayout.AgricoLike)
+        {
+            var claim = selected.Sum(item => item.Draft.EffectiveClaimAmount);
+            SetMoney(_invoiceClaim, claim);
+            _invoiceClaim.Enabled = false;
+            _invoiceTotal.Text = IndonesianNumber.Format(
+                selected.Sum(item => item.Draft.GrossAmount + item.Draft.RejectionCost) - claim);
             return;
         }
 
@@ -570,13 +602,28 @@ public sealed class ExcelOutputControl : UserControl
 
     private string InvoiceAdjustment(HaulDraft draft) => _kind != ExcelOutputKind.Invoice
         ? "—"
-        : IndonesianNumber.Rupiah(_layout.SelectedIndex == 0 ? -draft.BonSangu : draft.RejectionCost);
+        : IndonesianNumber.Rupiah(CurrentLayout() switch
+        {
+            OutputLayout.MigunoLike => -draft.BonSangu,
+            OutputLayout.AgricoLike => -draft.EffectiveClaimAmount,
+            _ => draft.RejectionCost
+        });
 
     private string InvoiceRowTotal(HaulDraft draft) => _kind != ExcelOutputKind.Invoice
         ? "—"
-        : IndonesianNumber.Rupiah(_layout.SelectedIndex == 0
-            ? draft.GrossAmount - draft.BonSangu
-            : draft.GrossAmount + draft.RejectionCost);
+        : IndonesianNumber.Rupiah(CurrentLayout() switch
+        {
+            OutputLayout.MigunoLike => draft.GrossAmount - draft.BonSangu,
+            OutputLayout.AgricoLike => draft.GrossAmount - draft.EffectiveClaimAmount,
+            _ => draft.GrossAmount + draft.RejectionCost
+        });
+
+    private OutputLayout CurrentLayout() => _layout.SelectedIndex switch
+    {
+        0 => OutputLayout.MigunoLike,
+        1 => OutputLayout.AgricoLike,
+        _ => OutputLayout.SumberPanganLike
+    };
 
     private static void ConfigureMoneyInput(TextBox textBox)
     {

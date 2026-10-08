@@ -15,6 +15,7 @@ internal static class ExcelExportSmokeTest
             var expenses = SampleExpenses();
             var exporter = new ExcelExportService();
             var compact = Path.Combine(directory, "invoice-ringkas.xlsx");
+            var agrico = Path.Combine(directory, "invoice-agrico.xlsx");
             var complete = Path.Combine(directory, "invoice-lengkap.xlsx");
             var ledger = Path.Combine(directory, "pembukuan.xlsx");
             var settings = new AppSettings(
@@ -23,12 +24,16 @@ internal static class ExcelExportSmokeTest
                 OutputLayout.SumberPanganLike, directory);
 
             exporter.ExportCompactInvoice(records, "PT CONTOH CUSTOMER", "TJ-20260903-001", DateTime.Today, compact, settings);
+            exporter.ExportAgricoInvoice(
+                [records[0] with { Draft = records[0].Draft with { ClaimWeightKg = 107, ClaimRatePerKg = 6_950, Layout = OutputLayout.AgricoLike } }],
+                "PT AGRICO TEST", "TJ-20260903-002", DateTime.Today, agrico, settings);
             exporter.ExportCompleteInvoice(records, "PT CONTOH CUSTOMER", "TJ-20260903-002", DateTime.Today, complete, settings);
             exporter.ExportTruckLedger(records, ledger, expenses);
 
-            Verify(compact, "Invoice", "I4", "A24", "PT TEST TRANSPORT");
+            Verify(compact, "INV", "J4");
+            VerifyAgrico(agrico);
             Verify(complete, "Invoice", "K19", "A21", "PT TEST TRANSPORT");
-            Verify(ledger, "N-TEST-01", "A121", "H5", "Ban: Ganti ban belakang");
+            Verify(ledger, "N-TEST-01", "A31", "H5", "Ban: Ganti ban belakang");
             VerifyFromToColumns(complete, ledger);
             VerifyInvoiceDatabase(directory, compact);
         }
@@ -45,7 +50,7 @@ internal static class ExcelExportSmokeTest
         {
             var sheet = workbook.Worksheet("Invoice");
             if (sheet.Cell("I2").GetString() != "DARI"
-                || sheet.Cell("J2").GetString() != "KE"
+                || sheet.Cell("J2").GetString() != "TUJUAN"
                 || sheet.Cell("I4").GetString() != "Jember"
                 || sheet.Cell("J4").GetString() != "Cirebon"
                 || sheet.Cell("K4").GetDouble() != 12_521_250
@@ -58,13 +63,28 @@ internal static class ExcelExportSmokeTest
         using (var workbook = new XLWorkbook(ledgerPath))
         {
             var sheet = workbook.Worksheet("N-TEST-01");
-            if (sheet.Cell("B3").GetString() != "DARI"
-                || sheet.Cell("C3").GetString() != "KE"
+            if (sheet.Cell("B4").GetString() != "DARI"
+                || sheet.Cell("C4").GetString() != "KE"
                 || sheet.Cell("B6").GetString() != "Jember"
                 || sheet.Cell("C6").GetString() != "Cirebon")
             {
                 throw new InvalidOperationException("Pembukuan tidak menggunakan kolom Dari dan Ke dengan benar.");
             }
+        }
+    }
+
+    private static void VerifyAgrico(string path)
+    {
+        using var workbook = new XLWorkbook(path);
+        var invoice = workbook.Worksheets.Single(sheet => sheet.Name.StartsWith("INV", StringComparison.Ordinal));
+        var claim = workbook.Worksheets.Single(sheet => sheet.Name.StartsWith("KLAIM", StringComparison.Ordinal));
+        if (workbook.Worksheets.Count != 2
+            || invoice.Cell("L4").FormulaA1 != "H4+I4"
+            || claim.Cell("I5").FormulaA1 != "G5*H5"
+            || claim.Cell("G5").GetDouble() != 107
+            || claim.Cell("H5").GetDouble() != 6_950)
+        {
+            throw new InvalidOperationException("Mirip Agrico tidak membuat pasangan sheet INV dan KLAIM dengan benar.");
         }
     }
 
@@ -323,7 +343,8 @@ internal static class ExcelExportSmokeTest
         }
 
         using var workbook = new XLWorkbook(path);
-        if (workbook.Worksheets.Count != 1 || !workbook.TryGetWorksheet(expectedSheet, out var sheet))
+        var sheet = workbook.Worksheets.FirstOrDefault(item => item.Name.StartsWith(expectedSheet, StringComparison.Ordinal));
+        if (workbook.Worksheets.Count != 1 || sheet is null)
         {
             throw new InvalidOperationException($"Sheet {expectedSheet} tidak ditemukan di {Path.GetFileName(path)}.");
         }
